@@ -122,17 +122,31 @@ namespace FBXtoRVT
 
             AddButton(panel, assemblyPath,
                 "RightAnglePipeButton",
-                "직각 배관\n생성기",
+                "직각 배관\n생성기(2Click)",
                 "FBXtoRVT.Commands.RightAnglePipeCommand",
-                "직각이지만 서로 만나지 않는 두 배관 사이에, 둘을 잇는 사잇배관을 생성합니다.",
+                "기준 배관 / 상대 배관을 나눠서 고르면, 둘을 잇는 사잇배관을 생성합니다.",
                 "① 기준 배관들, ② 상대 배관들 순서로 선택합니다(각각 여러 개 가능, 배관만 선택 가능). " +
                 "두 배관의 중심선이 직각이면서 연장해도 만나지 않으면(꼬인 위치), 두 직선의 공통수선을 " +
                 "구해 그 구간에 사잇배관을 만듭니다. 사잇배관의 양 끝점이 두 배관의 연장선 위에 정확히 " +
                 "놓이므로, 이후 Trim 으로 Elbow 를 넣을 수 있습니다(Elbow 삽입은 하지 않습니다). " +
                 "짝짓기는 조건을 만족하는 조합 중 서로 가장 가까운 쌍부터 1:1 로 자동 배정하며, " +
                 "한쪽 선택이 배관 1개뿐이면 그 배관을 여러 번 재사용합니다(1:N). 배관 타입·System Type·" +
-                "지름은 기준 배관을 따라가고, 조건이 안 맞는 쌍은 건너뛴 뒤 사유를 요약해 보여줍니다.",
+                "지름은 ① 기준 배관을 따라가고, 조건이 안 맞는 쌍은 건너뛴 뒤 사유를 요약해 보여줍니다.",
                 "직", Colors.SteelBlue);
+
+            AddButton(panel, assemblyPath,
+                "RightAnglePipeOneClickButton",
+                "직각 배관\n생성기(1Click)",
+                "FBXtoRVT.Commands.RightAnglePipeOneClickCommand",
+                "이어줄 배관들을 한 번에 고르면, 알아서 짝지어 사잇배관을 생성합니다.",
+                "선택을 나누지 않고 이어줄 배관들을 한 번에 선택합니다(여러 개 가능, 배관만 선택 가능). " +
+                "만드는 기하는 2Click 과 같습니다. 두 배관의 중심선이 직각이면서 연장해도 만나지 " +
+                "않으면(꼬인 위치), 두 직선의 공통수선 구간에 사잇배관을 만듭니다. 다른 점은 두 " +
+                "가지입니다. 첫째, 짝짓기 후보가 선택한 배관들 사이의 모든 조합이고 배관 하나는 한 " +
+                "번만 쓰입니다(2Click 의 1:N 재사용 없음). 둘째, 배관 타입·System Type·지름은 그 " +
+                "쌍에서 중심점 Z 가 더 높은 배관을 따라갑니다(Z 가 같으면 결과가 일정하도록 Element " +
+                "Id 가 작은 쪽). 짝을 짓지 못한 배관은 사유를 요약해 보여줍니다.",
+                "직", Colors.MediumSeaGreen);
 
             AddButton(panel, assemblyPath,
                 "ElbowConnectButton",
