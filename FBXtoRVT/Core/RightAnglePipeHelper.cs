@@ -23,20 +23,14 @@ namespace FBXtoRVT.Core
     ///
     /// 이미 두 직선이 만나는 경우(공통수선 길이 ≈ 0)는 사잇배관이 필요 없으므로 건너뛴다.
     ///
-    /// [선택 방식 2가지]
-    /// 어느 쪽이든 직각 + 꼬인 위치 조건을 만족하는 조합 중,
-    /// 서로 가장 가까운 쌍부터 자동으로 짝지어 나간다.
+    /// [짝짓기]
+    /// 유저가 배관들을 한 번에 선택하면, 그 배관들 사이의 모든 조합 중
+    /// 직각 + 꼬인 위치 조건을 만족하는 것을 후보로 모으고,
+    /// 서로 가장 가까운 쌍부터 배정한다. 한 번 짝지어진 배관은 다시 쓰지 않는다.
     ///
-    ///  1) 2Click (<see cref="Run"/>)
-    ///     1차/2차로 나눠서 선택한다. 짝은 1차 × 2차 조합에서만 만들어지고,
-    ///     새 배관의 속성은 1차로 선택한 배관을 따라간다.
-    ///     한쪽 선택이 배관 1개뿐이면 그 배관을 여러 번 재사용한다. (1 : N 매칭)
-    ///
-    ///  2) 1Click (<see cref="RunOneSelection"/>)
-    ///     한 번에 모아서 선택한다. 선택한 배관들끼리 짝을 짓고(배관 하나는 한 번만 쓰임),
-    ///     새 배관의 속성은 그 쌍에서 중심점 Z 가 더 높은 배관을 따라간다.
-    ///
-    /// 어느 쪽이든 새 배관의 배관 타입 / System Type / 지름 / 레벨은 "기준 배관" 을 따라간다.
+    /// [기준 배관]
+    /// 새 배관의 배관 타입 / System Type / 지름 / 레벨은 "기준 배관" 을 따라간다.
+    /// 기준 배관은 그 쌍에서 중심점 Z 가 더 높은 배관이다.
     /// </summary>
     public static class RightAnglePipeHelper
     {
@@ -113,39 +107,26 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
-        /// [1Click] 한 번에 선택한 배관들끼리 짝지어 사잇배관을 만든다.
+        /// 한 번에 선택한 배관들끼리 짝지어 사잇배관을 만든다.
         /// (외부에서 Transaction 을 열고 호출)
-        ///
-        /// 2Click 과 다른 점은 두 가지다.
-        ///  - 짝짓기 후보가 "선택한 배관들 사이의 모든 조합" 이고, 배관 하나는 한 번만 쓰인다.
-        ///  - 기준 배관(속성 출처)은 그 쌍에서 중심점 Z 가 더 높은 배관이다.
         /// </summary>
         /// <param name="pipes">한 번에 선택한 배관들</param>
-        public static RunResult RunOneSelection(Document doc, IList<Pipe> pipes)
+        public static RunResult Run(Document doc, IList<Pipe> pipes)
         {
             var result = new RunResult();
 
+            // 배관을 만들 수 있는 최소 길이. 이보다 짧으면 Revit 이 배관을 만들지 못한다.
             double minLength = doc.Application.ShortCurveTolerance;
 
-            // 1) 직선 배관만 남긴다.
+            // 1) 직선 배관만 남긴다. (곡선 배관은 중심선을 직선으로 다룰 수 없음)
             List<PipeAxis> axes = ToAxes(pipes, result);
             if (axes.Count < 2) return result;
 
             // 2) 선택한 배관들끼리의 모든 조합 중 조건을 만족하는 것을 후보로 모은다.
-            //    기준 배관은 각 쌍에서 Z 가 더 높은 쪽으로 정한다.
-            var candidates = new List<PairCandidate>();
-
-            for (int i = 0; i < axes.Count; i++)
-            {
-                for (int j = i + 1; j < axes.Count; j++)
-                {
-                    PairCandidate candidate = TryMakeCandidate(axes[i], axes[j], minLength, true);
-                    if (candidate != null) candidates.Add(candidate);
-                }
-            }
+            List<PairCandidate> candidates = CollectCandidates(axes, minLength);
 
             // 3) 가까운 쌍부터 배정. 이미 짝지어진 배관은 다시 쓰지 않는다.
-            List<PairCandidate> matched = MatchPairsWithinOneGroup(candidates);
+            List<PairCandidate> matched = MatchPairs(candidates);
 
             // 4) 배정된 쌍마다 사잇배관 생성
             //    handled = 짝을 배정받은 배관. (생성에 실패했더라도 사유 집계에서는 제외)
@@ -168,62 +149,7 @@ namespace FBXtoRVT.Core
             }
 
             // 5) 짝을 배정받지 못한 배관에 대해 이유를 집계한다.
-            //    (후보를 같은 그룹 안에서 찾으므로 두 인자에 같은 목록을 넘긴다)
-            CountSkipReasons(axes, axes, handled, minLength, result);
-
-            return result;
-        }
-
-        /// <summary>
-        /// [2Click] 1차 선택 배관들과 2차 선택 배관들을 짝지어 사잇배관을 만든다.
-        /// (외부에서 Transaction 을 열고 호출)
-        /// </summary>
-        /// <param name="basePipes">1차 선택 배관들 (타입/지름/System Type 기준)</param>
-        /// <param name="targetPipes">2차 선택 배관들</param>
-        public static RunResult Run(Document doc, IList<Pipe> basePipes, IList<Pipe> targetPipes)
-        {
-            var result = new RunResult();
-
-            // 배관을 만들 수 있는 최소 길이. 이보다 짧으면 Revit 이 배관을 만들지 못한다.
-            double minLength = doc.Application.ShortCurveTolerance;
-
-            // 1) 직선 배관만 남긴다. (곡선 배관은 중심선을 직선으로 다룰 수 없음)
-            List<PipeAxis> baseAxes = ToAxes(basePipes, result);
-            List<PipeAxis> targetAxes = ToAxes(targetPipes, result);
-
-            if (baseAxes.Count == 0 || targetAxes.Count == 0)
-                return result;
-
-            // 2) 조건(직각 + 꼬인 위치)을 만족하는 모든 조합을 후보로 모은다.
-            List<PairCandidate> candidates = CollectCandidates(baseAxes, targetAxes, minLength);
-
-            // 3) 가까운 쌍부터 1:1 로 배정한다.
-            //    단, 한쪽 선택이 배관 1개뿐이면 그 배관은 여러 번 재사용한다. (1 : N)
-            bool reuseBase = (baseAxes.Count == 1);
-            bool reuseTarget = (targetAxes.Count == 1);
-            List<PairCandidate> matched = MatchPairs(candidates, reuseBase, reuseTarget);
-
-            // 4) 배정된 쌍마다 사잇배관 생성
-            //    handledBases = 짝을 배정받은 기준 배관. (생성에 실패했더라도 사유 집계에서는 제외)
-            var handledBases = new HashSet<ElementId>();
-
-            foreach (PairCandidate pair in matched)
-            {
-                handledBases.Add(pair.Base.Pipe.Id);
-
-                Pipe newPipe = TryCreatePipe(doc, pair);
-
-                if (newPipe == null)
-                {
-                    result.CreateFailedCount++;
-                    continue;
-                }
-
-                result.CreatedPipeIds.Add(newPipe.Id);
-            }
-
-            // 5) 짝을 배정받지 못한 기준 배관에 대해 이유를 집계한다.
-            CountSkipReasons(baseAxes, targetAxes, handledBases, minLength, result);
+            CountSkipReasons(axes, handled, minLength, result);
 
             return result;
         }
@@ -262,19 +188,18 @@ namespace FBXtoRVT.Core
         // ===== 2) 후보 조합 모으기 =====
 
         /// <summary>
-        /// 1차 배관 × 2차 배관 모든 조합 중, 사잇배관을 만들 수 있는 것만 후보로 모은다.
-        /// (2Click 전용. 기준 배관은 항상 1차 선택 배관이다)
+        /// 선택한 배관들 사이의 모든 조합 중, 사잇배관을 만들 수 있는 것만 후보로 모은다.
         /// </summary>
-        private static List<PairCandidate> CollectCandidates(
-            List<PipeAxis> baseAxes, List<PipeAxis> targetAxes, double minLength)
+        private static List<PairCandidate> CollectCandidates(List<PipeAxis> axes, double minLength)
         {
             var candidates = new List<PairCandidate>();
 
-            foreach (PipeAxis b in baseAxes)
+            // (i, j) 와 (j, i) 는 같은 쌍이므로 j 를 i 다음부터 돈다.
+            for (int i = 0; i < axes.Count; i++)
             {
-                foreach (PipeAxis t in targetAxes)
+                for (int j = i + 1; j < axes.Count; j++)
                 {
-                    PairCandidate candidate = TryMakeCandidate(b, t, minLength, false);
+                    PairCandidate candidate = TryMakeCandidate(axes[i], axes[j], minLength);
                     if (candidate != null) candidates.Add(candidate);
                 }
             }
@@ -285,13 +210,9 @@ namespace FBXtoRVT.Core
         /// <summary>
         /// 배관 두 개가 사잇배관을 만들 수 있는 조합인지 검사하고, 맞으면 후보를 만든다.
         /// 조건: (a) 두 중심선이 직각  (b) 연장해도 만나지 않음(공통수선 길이가 최소 길이 이상)
+        /// 기준 배관은 중심점 Z 가 더 높은 쪽으로 정한다.
         /// </summary>
-        /// <param name="chooseHigherAsBase">
-        /// true 면 중심점 Z 가 더 높은 배관을 기준으로 삼는다. (1Click)
-        /// false 면 첫 인자를 그대로 기준으로 삼는다. (2Click — 1차 선택 배관이 기준)
-        /// </param>
-        private static PairCandidate TryMakeCandidate(
-            PipeAxis first, PipeAxis second, double minLength, bool chooseHigherAsBase)
+        private static PairCandidate TryMakeCandidate(PipeAxis first, PipeAxis second, double minLength)
         {
             if (first.Pipe.Id == second.Pipe.Id) return null;       // 같은 배관끼리는 제외
 
@@ -301,7 +222,7 @@ namespace FBXtoRVT.Core
             PipeAxis baseAxis = first;
             PipeAxis targetAxis = second;
 
-            if (chooseHigherAsBase && !ShouldBeBase(first, second))
+            if (!ShouldBeBase(first, second))
             {
                 baseAxis = second;
                 targetAxis = first;
@@ -349,37 +270,9 @@ namespace FBXtoRVT.Core
         // ===== 3) 짝짓기 =====
 
         /// <summary>
-        /// 가까운 쌍부터 순서대로 배정한다.
-        /// reuseBase / reuseTarget 이 false 면 그쪽 배관은 한 번만 쓰인다.(1:1)
-        /// </summary>
-        private static List<PairCandidate> MatchPairs(
-            List<PairCandidate> candidates, bool reuseBase, bool reuseTarget)
-        {
-            // 가까운 순으로 정렬 → 가장 자연스러운 짝부터 확정
-            candidates.Sort((x, y) => x.Nearness.CompareTo(y.Nearness));
-
-            var usedBase = new HashSet<ElementId>();
-            var usedTarget = new HashSet<ElementId>();
-            var matched = new List<PairCandidate>();
-
-            foreach (PairCandidate c in candidates)
-            {
-                if (!reuseBase && usedBase.Contains(c.Base.Pipe.Id)) continue;
-                if (!reuseTarget && usedTarget.Contains(c.Target.Pipe.Id)) continue;
-
-                matched.Add(c);
-                usedBase.Add(c.Base.Pipe.Id);
-                usedTarget.Add(c.Target.Pipe.Id);
-            }
-
-            return matched;
-        }
-
-        /// <summary>
-        /// 한 그룹 안에서 짝짓기. (1Click 전용)
         /// 가까운 쌍부터 배정하고, 한 번 짝지어진 배관은 기준이든 상대든 다시 쓰지 않는다.
         /// </summary>
-        private static List<PairCandidate> MatchPairsWithinOneGroup(List<PairCandidate> candidates)
+        private static List<PairCandidate> MatchPairs(List<PairCandidate> candidates)
         {
             // 가까운 순으로 정렬 → 가장 자연스러운 짝부터 확정
             candidates.Sort((x, y) => x.Nearness.CompareTo(y.Nearness));
@@ -404,7 +297,7 @@ namespace FBXtoRVT.Core
 
         /// <summary>
         /// 공통수선의 발 두 점을 잇는 사잇배관을 만든다.
-        /// 타입 / System Type / 지름 / 레벨은 1차 선택 배관을 따라간다.
+        /// 타입 / System Type / 지름 / 레벨은 기준 배관(Z 가 더 높은 쪽)을 따라간다.
         /// 실패하면 null.
         /// </summary>
         private static Pipe TryCreatePipe(Document doc, PairCandidate pair)
@@ -432,7 +325,7 @@ namespace FBXtoRVT.Core
                 Pipe newPipe = Pipe.Create(
                     doc, systemTypeId, pipeTypeId, levelId, pair.BaseFoot, pair.TargetFoot);
 
-                // 지름도 1차 선택 배관과 동일하게 맞춘다.
+                // 지름도 기준 배관과 동일하게 맞춘다.
                 Parameter diaParam = newPipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM);
                 if (diaParam != null && !diaParam.IsReadOnly)
                 {
@@ -451,24 +344,23 @@ namespace FBXtoRVT.Core
         // ===== 5) 건너뛴 이유 집계 =====
 
         /// <summary>
-        /// 짝을 배정받지 못한 기준 배관마다 이유를 판정해 카운트한다.
+        /// 짝을 배정받지 못한 배관마다 이유를 판정해 카운트한다.
         ///  - 직각인 상대가 아예 없었다
         ///  - 직각이긴 한데 이미 만나고 있어서 사잇배관이 필요 없다
         ///  - 조건은 맞았지만 그 상대가 다른 쌍에 먼저 배정됐다
         /// </summary>
         private static void CountSkipReasons(
-            List<PipeAxis> baseAxes, List<PipeAxis> targetAxes,
-            HashSet<ElementId> handledBases, double minLength, RunResult result)
+            List<PipeAxis> axes, HashSet<ElementId> handled, double minLength, RunResult result)
         {
-            foreach (PipeAxis b in baseAxes)
+            foreach (PipeAxis b in axes)
             {
-                if (handledBases.Contains(b.Pipe.Id)) continue;   // 짝을 배정받았으면 통과
+                if (handled.Contains(b.Pipe.Id)) continue;   // 짝을 배정받았으면 통과
 
                 bool hasPerpendicular = false;      // 직각인 상대가 있었나
                 bool hasIntersecting = false;       // 그중 이미 만나는 상대가 있었나
                 bool hasSkewPartner = false;        // 그중 사잇배관이 필요한 상대가 있었나
 
-                foreach (PipeAxis t in targetAxes)
+                foreach (PipeAxis t in axes)
                 {
                     if (b.Pipe.Id == t.Pipe.Id) continue;
                     if (!IsPerpendicular(b.Line, t.Line)) continue;

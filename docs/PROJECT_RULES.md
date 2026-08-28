@@ -118,7 +118,7 @@ foreach (Element e in collector)
 | --- | --- | --- |
 | `1.포어라인` | 포어라인 작업 전용 | 타공 슬리브 조정 / 대각 배관 생성기 |
 | `2.SCR` | SCR 작업 전용 | SCR장비&플랜지/NUT / 겹침 객체 선택 |
-| `공용` | 공정과 상관없이 쓰는 기능 | 직각 배관 생성기(2Click) / 직각 배관 생성기(1Click) / ELBOW&배관/플랜지 / HOPPER&플랜지 / 장비&플랜지/NUT / Flex Pipe 생성기 / LINK ON/OFF |
+| `공용` | 공정과 상관없이 쓰는 기능 | 직각 배관 생성기 / ELBOW&배관/플랜지 / HOPPER&플랜지 / 장비&플랜지/NUT / Flex Pipe 생성기 / LINK ON/OFF |
 | `기타` | 보조(뷰 조작) 기능 | 선택 Section Box |
 | `응원` | 응원 버튼 | (이름별 8개) |
 
