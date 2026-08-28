@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <!-- 리본에 표시되는 애드인 이름 -->
+    <Name>FBXtoRVT</Name>
+
+    <!-- DLL 경로: .addin 파일은 Addins\2025\ 에, DLL은 Addins\2025\FBXtoRVT\ 에 설치됨 (상대경로) -->
+    <Assembly>FBXtoRVT\FBXtoRVT.dll</Assembly>
+
+    <!-- Revit 시작 시 OnStartup()을 호출할 클래스 전체 경로 -->
+    <FullClassName>FBXtoRVT.App</FullClassName>
+
+    <!-- 이 애드인을 고유하게 식별하는 ID (절대 바꾸지 말 것 — 바꾸면 Revit이 다른 애드인으로 인식) -->
+    <AddInId>3f2a1c9e-7b4d-4e6a-9c21-8f5b0d1a2e34</AddInId>
+
+    <!-- 개발사 식별자 -->
+    <VendorId>FBXtoRVT</VendorId>
+    <VendorDescription>FBXtoRVT Add-in</VendorDescription>
+  </AddIn>
+</RevitAddIns>

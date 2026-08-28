@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Revit 2025 는 .NET 8 기반이며, WPF 창을 쓰므로 net8.0-windows 사용 -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- Revit DLL 을 출력 폴더로 복사하지 않도록(중복/충돌 방지) -->
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>C:\Program Files\Autodesk\Revit 2025\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 개발 편의: 빌드 후 배포와 동일한 구조로 Addins 폴더에 자동 배치 -->
+  <!--  - .addin 은 Addins\2025\ 에 (상대경로 매니페스트 사용) -->
+  <!--  - DLL 은 Addins\2025\FBXtoRVT\ 하위폴더에 -->
+  <Target Name="DeployAddin" AfterTargets="Build">
+    <Copy SourceFiles="$(ProjectDir)manifest\FBXtoRVT.addin"
+          DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2025" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(AppData)\Autodesk\Revit\Addins\2025\FBXtoRVT" />
+  </Target>
+
+</Project>

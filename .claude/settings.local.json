@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Bash(cmd //c \"D:\\\\\\\\DEV\\\\\\\\02.Test\\\\\\\\FBXtoRVT\\\\\\\\FBXtoRVT\\\\\\\\FBXtoRVT\\\\\\\\build\\\\\\\\package.bat\")",
+      "Bash(iconv -f CP949 -t UTF-8)",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(dotnet --version)",
+      "Bash(cd \"/c/Program Files/Autodesk/Revit 2025\" && grep -a -o -E \"MEPConnectorInfo|GetMEPConnectorInfo|IsSecondary\" RevitAPI.dll | sort | uniq -c)",
+      "Bash(\"/c/Program Files/dotnet/dotnet\" build FBXtoRVT.sln -v q --nologo)",
+      "Bash(\"/c/Program Files/dotnet/dotnet\" build FBXtoRVT.sln -t:Compile -v q --nologo)"
+    ]
+  }
+}
