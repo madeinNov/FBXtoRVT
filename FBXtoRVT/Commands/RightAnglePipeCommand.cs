@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Plumbing;
@@ -10,7 +11,14 @@ namespace FBXtoRVT.Commands
 {
     /// <summary>
     /// "직각 배관 생성기" 버튼이 실행하는 명령.
-    /// 흐름: 첫 배관 클릭(배관만 가능) > 두 번째 객체 클릭(카테고리 제한 없음) > 직각 배관 생성.
+    ///
+    /// 흐름
+    ///   1) 기준 배관들을 선택 (여러 개 가능, 배관만)
+    ///   2) 상대 배관들을 선택 (여러 개 가능, 배관만)
+    ///   3) 직각인데 서로 만나지 않는 쌍을 찾아 그 사이를 잇는 "사잇배관" 생성
+    ///
+    /// 사잇배관의 양 끝점은 두 배관 중심선의 연장선 위에 정확히 놓이므로,
+    /// 이후 유저가 Trim 으로 Elbow 를 넣을 수 있다. (Elbow 삽입은 이 기능에서 하지 않는다)
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     public class RightAnglePipeCommand : IExternalCommand
@@ -33,42 +41,50 @@ namespace FBXtoRVT.Commands
 
             try
             {
-                // 2) 첫 번째 객체는 반드시 배관 (PipeSelectionFilter 로 배관만 클릭 가능)
-                Reference baseRef = uiDoc.Selection.PickObject(
-                    ObjectType.Element, new PipeSelectionFilter(), "기준이 될 배관을 클릭하세요.");
-                Pipe basePipe = doc.GetElement(baseRef) as Pipe;
+                var filter = new PipeSelectionFilter();
 
-                if (basePipe == null)
+                // 2) 1차 선택: 기준 배관들 (배관 타입 / 사이즈 / System Type 의 기준)
+                IList<Reference> baseRefs = uiDoc.Selection.PickObjects(
+                    ObjectType.Element, filter,
+                    "① 기준 배관을 선택하세요. (여러 개 가능 · 타입/사이즈/시스템의 기준 · 완료는 Finish)");
+
+                List<Pipe> basePipes = ToPipes(doc, baseRefs);
+                if (basePipes.Count == 0)
                 {
-                    message = "첫 번째 배관 선택에 실패했습니다.";
-                    return Result.Failed;
-                }
-
-                // 3) 두 번째 객체는 카테고리 제한 없음 (필터 없이 선택)
-                Reference targetRef = uiDoc.Selection.PickObject(
-                    ObjectType.Element, "연결할 대상 객체를 클릭하세요. (배관 / 그 밖의 객체 모두 가능)");
-                Element target = doc.GetElement(targetRef);
-
-                if (target == null)
-                {
-                    message = "두 번째 객체 선택에 실패했습니다.";
-                    return Result.Failed;
-                }
-
-                if (basePipe.Id == target.Id)
-                {
-                    TaskDialog.Show(FeatureTitle, "서로 다른 두 객체를 선택하세요.");
+                    TaskDialog.Show(FeatureTitle, "기준 배관이 선택되지 않았습니다.");
                     return Result.Cancelled;
                 }
 
-                // 4) 트랜잭션 안에서 직각 배관 생성
-                using (Transaction tx = new Transaction(doc, "직각 배관 생성"))
+                // 3) 2차 선택: 상대 배관들
+                IList<Reference> targetRefs = uiDoc.Selection.PickObjects(
+                    ObjectType.Element, filter,
+                    "② 연결할 상대 배관을 선택하세요. (여러 개 가능 · 완료는 Finish)");
+
+                List<Pipe> targetPipes = ToPipes(doc, targetRefs);
+                if (targetPipes.Count == 0)
+                {
+                    TaskDialog.Show(FeatureTitle, "상대 배관이 선택되지 않았습니다.");
+                    return Result.Cancelled;
+                }
+
+                // 4) 트랜잭션 안에서 사잇배관 생성
+                RightAnglePipeHelper.RunResult runResult;
+
+                using (Transaction tx = new Transaction(doc, "직각 사잇배관 생성"))
                 {
                     tx.Start();
-                    RightAnglePipeHelper.CreateRightAnglePipe(doc, basePipe, target);
+                    runResult = RightAnglePipeHelper.Run(doc, basePipes, targetPipes);
                     tx.Commit();
                 }
 
+                // 5) 만들어진 배관을 선택 상태로 만들어 바로 확인할 수 있게 한다.
+                if (runResult.CreatedCount > 0)
+                {
+                    uiDoc.Selection.SetElementIds(runResult.CreatedPipeIds);
+                }
+
+                // 6) 결과 요약 표시
+                TaskDialog.Show(FeatureTitle, BuildSummary(basePipes.Count, targetPipes.Count, runResult));
                 return Result.Succeeded;
             }
             catch (Autodesk.Revit.Exceptions.OperationCanceledException)
@@ -76,17 +92,68 @@ namespace FBXtoRVT.Commands
                 // 사용자가 ESC 로 취소
                 return Result.Cancelled;
             }
-            catch (InvalidOperationException ex)
-            {
-                // 커넥터가 모두 닫힘 등 조건 불충족: 안내 후 종료 (트랜잭션은 롤백됨)
-                TaskDialog.Show(FeatureTitle, ex.Message);
-                return Result.Cancelled;
-            }
             catch (Exception ex)
             {
+                LogUtils.LogError(ex, "직각 배관 생성기 실행 실패");
                 message = ex.Message;
                 return Result.Failed;
             }
+        }
+
+        /// <summary>
+        /// 선택 결과(Reference)를 배관 목록으로 바꾼다. 배관이 아닌 것은 버린다.
+        /// </summary>
+        private static List<Pipe> ToPipes(Document doc, IList<Reference> refs)
+        {
+            var pipes = new List<Pipe>();
+            if (refs == null) return pipes;
+
+            foreach (Reference r in refs)
+            {
+                Pipe pipe = doc.GetElement(r) as Pipe;
+                if (pipe != null) pipes.Add(pipe);
+            }
+
+            return pipes;
+        }
+
+        /// <summary>
+        /// 결과 요약 문구를 만든다. 건너뛴 배관은 이유별로 나눠서 보여준다.
+        /// </summary>
+        private static string BuildSummary(int baseCount, int targetCount, RightAnglePipeHelper.RunResult r)
+        {
+            string summary =
+                $"선택: 기준 배관 {baseCount}개 / 상대 배관 {targetCount}개\n" +
+                $"생성한 사잇배관: {r.CreatedCount}개\n";
+
+            // 건너뛴 사유가 하나라도 있으면 이어서 표시
+            var reasons = new List<string>();
+
+            if (r.NotStraightCount > 0)
+                reasons.Add($"직선이 아니라 제외: {r.NotStraightCount}개");
+
+            if (r.AlreadyIntersectCount > 0)
+                reasons.Add($"이미 직각으로 만남(사잇배관 불필요, Trim 만 하면 됨): {r.AlreadyIntersectCount}개");
+
+            if (r.NoPerpendicularCount > 0)
+                reasons.Add($"직각인 상대 배관이 없음: {r.NoPerpendicularCount}개");
+
+            if (r.PartnerTakenCount > 0)
+                reasons.Add($"상대 배관이 다른 쌍에 먼저 배정됨: {r.PartnerTakenCount}개");
+
+            if (r.CreateFailedCount > 0)
+                reasons.Add($"배관 생성 실패: {r.CreateFailedCount}건");
+
+            if (reasons.Count > 0)
+            {
+                summary += "\n[건너뛴 기준 배관]\n";
+                foreach (string reason in reasons)
+                {
+                    summary += "· " + reason + "\n";
+                }
+            }
+
+            return summary;
         }
     }
 }

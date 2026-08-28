@@ -102,8 +102,9 @@ foreach (Element e in collector)
 `Core/OverlapSelectHelper.cs` 는 패밀리명뿐 아니라 타입명으로도 찾아야 해서
 자체 수집 코드를 갖고 있고, 거기에 `IsSubComponent` 를 끼워 넣었습니다.
 
-`Core/RightAnglePipeHelper.cs` 는 사용자가 직접 클릭한 객체 2개만 다루므로
-수집 단계가 없습니다.
+`Core/RightAnglePipeHelper.cs` 는 사용자가 직접 선택한 배관들만 다루고, 선택 필터로
+배관(`Pipe`) 카테고리만 허용하므로 수집 단계가 없습니다.
+(`Pipe` 는 `FamilyInstance` 가 아니라 Sub-Component 문제가 생기지 않습니다.)
 
 ---
 
