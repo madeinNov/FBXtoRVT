@@ -23,6 +23,9 @@ namespace FBXtoRVT.Core
         // 사용할 FLEX PIPE 타입 이름
         private const string FlexPipeTypeName = "METAL HOSE_STS304(FLEX)";
 
+        // 이보다 짧으면 배관을 만들지 않는다. (1mm)
+        private static readonly double MinLengthFeet = ElementUtils.MmToFeet(1.0);
+
         /// <summary>
         /// Flex Pipe 를 생성한다. (외부에서 Transaction 을 열고 호출)
         /// 조건이 맞지 않으면 InvalidOperationException 을 던져 호출한 쪽에서 안내하도록 한다.
@@ -56,14 +59,28 @@ namespace FBXtoRVT.Core
                 }
             }
 
+            // 두 커넥터가 사실상 같은 자리에 있으면 배관을 만들 수 없다.
+            if (bestDist < MinLengthFeet)
+                throw new InvalidOperationException(
+                    "두 객체의 커넥터가 너무 가까워서 FLEX PIPE 를 만들 수 없습니다.");
+
             // 첫 객체(시작 커넥터) 기준으로 System Type / FLEX PIPE 타입 / 레벨 결정
             ElementId systemTypeId = GetSystemTypeId(obj1);
             ElementId flexPipeTypeId = GetFlexPipeTypeId(doc);
             ElementId levelId = ElementUtils.FindNearestLevelId(doc, startConn.Origin);
 
+            // FlexPipe.Create 의 5·6번째 인자는 "점" 이 아니라 "접선 방향 벡터" 이고,
+            // 마지막 points 에 시작점/끝점을 포함한 2개 이상의 점을 넣어야 한다.
+            // (예전 코드는 커넥터 원점을 접선 자리에 넣고 points 를 빈 목록으로 넘겨서
+            //  "The valid number of points is less than two..." 경고가 났다)
+            XYZ startTangent = GetOutwardDirection(startConn);
+            XYZ endTangent = GetOutwardDirection(endConn).Negate(); // 끝에서는 커넥터로 "들어가는" 방향
+
+            var points = new List<XYZ> { startConn.Origin, endConn.Origin };
+
             FlexPipe flexPipe = FlexPipe.Create(
                 doc, systemTypeId, flexPipeTypeId, levelId,
-                startConn.Origin, endConn.Origin, new List<XYZ>());
+                startTangent, endTangent, points);
 
             // Pipe.Create 와 마찬가지로, 끝점이 기존 열린 커넥터 위치와 정확히 일치하면
             // 자동으로 연결되지 않는 경우가 있으므로 명시적으로 연결한다.
@@ -81,13 +98,25 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
+        /// 커넥터가 바깥(객체에서 나가는 쪽)을 향하는 방향 벡터.
+        /// Revit 커넥터의 좌표계 Z축이 곧 바깥 방향이다.
+        /// </summary>
+        private static XYZ GetOutwardDirection(Connector c)
+        {
+            return c.CoordinateSystem.BasisZ.Normalize();
+        }
+
+        /// <summary>
         /// 새로 만든 FlexPipe 의 커넥터 중 targetConn 원점과 일치하는 것을 찾아 연결한다.
         /// </summary>
         private static void ConnectFlexPipeEnd(FlexPipe flexPipe, Connector targetConn)
         {
+            // 생성 직후 끝점이 아주 조금 어긋날 수 있으므로 1mm 정도는 같은 자리로 본다.
+            double tolerance = ElementUtils.MmToFeet(1.0);
+
             foreach (Connector c in ElementUtils.GetEndConnectors(flexPipe))
             {
-                if (c.Origin.DistanceTo(targetConn.Origin) < 1e-6)
+                if (c.Origin.DistanceTo(targetConn.Origin) < tolerance)
                 {
                     if (!c.IsConnectedTo(targetConn))
                         c.ConnectTo(targetConn);

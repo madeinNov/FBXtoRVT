@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\FBXtoRVT.csproj": {}
+    "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\.claude\\worktrees\\remote-control-db5cf3\\FBXtoRVT\\FBXtoRVT.csproj": {}
   },
   "projects": {
-    "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\FBXtoRVT.csproj": {
+    "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\.claude\\worktrees\\remote-control-db5cf3\\FBXtoRVT\\FBXtoRVT.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\FBXtoRVT.csproj",
+        "projectUniqueName": "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\.claude\\worktrees\\remote-control-db5cf3\\FBXtoRVT\\FBXtoRVT.csproj",
         "projectName": "FBXtoRVT",
-        "projectPath": "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\FBXtoRVT.csproj",
+        "projectPath": "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\.claude\\worktrees\\remote-control-db5cf3\\FBXtoRVT\\FBXtoRVT.csproj",
         "packagesPath": "C:\\Users\\ljh\\.nuget\\packages\\",
-        "outputPath": "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\obj\\",
+        "outputPath": "D:\\DEV\\02.Test\\FBXtoRVT\\FBXtoRVT\\.claude\\worktrees\\remote-control-db5cf3\\FBXtoRVT\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"

@@ -102,9 +102,26 @@ foreach (Element e in collector)
 `Core/OverlapSelectHelper.cs` 는 패밀리명뿐 아니라 타입명으로도 찾아야 해서
 자체 수집 코드를 갖고 있고, 거기에 `IsSubComponent` 를 끼워 넣었습니다.
 
-`Core/RightAnglePipeHelper.cs` 는 사용자가 직접 선택한 배관들만 다루고, 선택 필터로
-배관(`Pipe`) 카테고리만 허용하므로 수집 단계가 없습니다.
+`Core/RightAngleConnectHelper.cs` (직각 배관 연결기)와 `Core/DiagonalPipeHelper.cs`
+(대각 배관 생성기)는 사용자가 직접 클릭한 배관 두 개만 다루고, 선택 필터로 배관(`Pipe`)
+카테고리만 허용하므로 수집 단계가 없습니다.
 (`Pipe` 는 `FamilyInstance` 가 아니라 Sub-Component 문제가 생기지 않습니다.)
+
+`Core/RightAnglePipeHelper.cs` / `Commands/RightAnglePipeCommand.cs` (직각 배관 생성기)는
+**현재 사용하지 않아 파일 전체를 주석 처리**했고, 리본 버튼(아이콘)도 제거했습니다.
+되살리려면 두 파일의 `/* ... */` 주석을 풀고 `App.cs` 의 `공용` 패널에 `AddButton` 을
+다시 추가하면 됩니다. 기하 계산도 주석 안에 그대로 들어 있습니다.
+
+### 이름이 비슷한 두 기능을 헷갈리지 마세요
+
+| 기능 | 대상 | 만드는 것 | 연결까지? |
+| --- | --- | --- | --- |
+| 대각 배관 생성기 | **평행한** 두 배관 | 45도 대각 배관 | 아니오(유저가 Trim) |
+| 직각 배관 연결기 | **평행한** 두 배관 | 90도 직각 배관 | 예(Trim + 엘보 2개) |
+| ~~직각 배관 생성기~~ (주석 처리됨) | **직각인** 두 배관 | 사잇배관 | 아니오(유저가 Trim) |
+
+평행한 두 배관을 잇는 기하 계산(평행 판정 / 공통수선 위치)은
+`Core/PipeGeometryUtils.cs` 에 모아 두었습니다.
 
 ---
 
@@ -118,7 +135,7 @@ foreach (Element e in collector)
 | --- | --- | --- |
 | `1.포어라인` | 포어라인 작업 전용 | 타공 슬리브 조정 / 대각 배관 생성기 |
 | `2.SCR` | SCR 작업 전용 | SCR장비&플랜지/NUT / 겹침 객체 선택 |
-| `공용` | 공정과 상관없이 쓰는 기능 | 직각 배관 생성기 / ELBOW&배관/플랜지 / HOPPER&플랜지 / 장비&플랜지/NUT / Flex Pipe 생성기 / LINK ON/OFF |
+| `공용` | 공정과 상관없이 쓰는 기능 | 직각 배관 연결기 / ELBOW&배관/플랜지 / HOPPER&플랜지 / 장비&플랜지/NUT / Flex Pipe 생성기 / LINK ON/OFF |
 | `기타` | 보조(뷰 조작) 기능 | 선택 Section Box |
 | `응원` | 응원 버튼 | (이름별 8개) |
 

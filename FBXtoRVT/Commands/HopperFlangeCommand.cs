@@ -9,7 +9,7 @@ namespace FBXtoRVT.Commands
     /// <summary>
     /// "HOPPER&amp;플랜지" 버튼이 실행하는 명령.
     /// 조건: 1) 현재 열린 Document 2) 현재 View 에 전시된 객체
-    /// HOPPER 바운딩 박스 안에 FLANGE 가 딱 1개일 때, 파라미터를 정리하고 HOPPER 를 연결한다.
+    /// HOPPER 바운딩 박스(+50mm) 안에 FLANGE 가 딱 1개일 때, 파라미터를 정리하고 HOPPER 를 연결한다.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     public class HopperFlangeCommand : IExternalCommand
@@ -53,6 +53,8 @@ namespace FBXtoRVT.Commands
                     $"HOPPER: {runResult.HopperCount}개\n" +
                     $"연결 대상 FLANGE: {runResult.TargetFlangeCount}개\n" +
                     $"박스 안 FLANGE 가 1개가 아니라 건너뜀: {runResult.SkippedCount}개\n\n" +
+                    $"ND1 복사: {runResult.Nd1CopiedCount}건\n" +
+                    $"ND1 미적용(HOPPER 커넥터 ND 불일치): {runResult.Nd1SkippedMixedCount}건\n" +
                     $"파라미터 해제: {runResult.ParamUncheckedCount}건\n" +
                     $"연결 성공: {runResult.ConnectedCount}건\n" +
                     $"연결 실패: {runResult.FailedCount}건";

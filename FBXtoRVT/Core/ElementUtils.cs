@@ -145,6 +145,22 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
+        /// 패밀리명(Family.Name) 또는 타입명(Symbol.Name)에 키워드가 포함되는지(대소문자 무시).
+        /// "이름" 이라고만 하면 사용자는 보통 둘 중 아무 쪽이나 뜻하므로, 두 이름을 모두 본다.
+        /// </summary>
+        public static bool NameContains(Element e, string keyword)
+        {
+            var fi = e as FamilyInstance;
+            if (fi == null || fi.Symbol == null) return false;
+
+            string typeName = fi.Symbol.Name ?? "";
+            string familyName = (fi.Symbol.Family != null) ? (fi.Symbol.Family.Name ?? "") : "";
+
+            return typeName.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0
+                || familyName.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
         /// 현재 뷰에서 패밀리명에 키워드가 포함된 FamilyInstance 를 수집.
         /// 복합 패밀리의 Sub-Component 는 제외한다.
         /// </summary>
@@ -322,6 +338,28 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
+        /// 객체의 End 커넥터 중 기준점에 가장 가까운 것을 반환. 없으면 null.
+        /// (거리가 같으면 먼저 만난 것 = 둘 중 아무거나)
+        /// </summary>
+        public static Connector FindNearestEndConnector(Element e, XYZ target)
+        {
+            Connector best = null;
+            double bestDist = double.MaxValue;
+
+            foreach (Connector c in GetEndConnectors(e))
+            {
+                double dist = c.Origin.DistanceTo(target);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = c;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
         /// 객체 Id + 커넥터 Id 로 커넥터를 다시 찾아온다.
         /// 삭제 / 이동 / 파라미터 변경 뒤에는 기존 Connector 객체가 낡은 값을 가질 수 있으므로,
         /// 실제로 쓰기 직전에 이 함수로 다시 조회한다. 못 찾으면 null.
@@ -337,6 +375,72 @@ namespace FBXtoRVT.Core
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 커넥터의 "굵기"를 하나의 비교용 문자열로 만든다.
+        /// 원형이면 반지름, 사각형이면 가로x세로 로 만들며, 0.1mm 단위로 반올림해
+        /// 미세한 오차 때문에 서로 다른 굵기로 보이지 않게 한다.
+        /// (ND 가 같은지 비교하는 용도로만 쓴다)
+        /// </summary>
+        public static string GetConnectorSizeKey(Connector c)
+        {
+            if (c == null) return "";
+
+            // 0.1mm 를 feet 로 바꾼 값 = 반올림 단위
+            double step = MmToFeet(0.1);
+
+            if (c.Shape == ConnectorProfileType.Round)
+                return "R" + Math.Round(c.Radius / step);
+
+            return "S" + Math.Round(c.Width / step) + "x" + Math.Round(c.Height / step);
+        }
+
+        /// <summary>
+        /// 같은 이름의 파라미터 값을 from -> to 로 복사한다.
+        /// 실제로 값을 바꿨으면 true, 파라미터가 없거나 읽기전용이거나 값이 같으면 false.
+        /// 저장 타입(숫자 / 정수 / 문자 / Id)이 서로 다르면 복사하지 않는다.
+        /// </summary>
+        public static bool CopyParamValue(Element from, Element to, string paramName)
+        {
+            if (from == null || to == null) return false;
+
+            Parameter src = from.LookupParameter(paramName);
+            Parameter dst = to.LookupParameter(paramName);
+
+            if (src == null || dst == null) return false;
+            if (dst.IsReadOnly) return false;
+            if (src.StorageType != dst.StorageType) return false;
+
+            switch (src.StorageType)
+            {
+                case StorageType.Double:
+                    double dv = src.AsDouble();
+                    if (Math.Abs(dst.AsDouble() - dv) < 1e-9) return false; // 이미 같은 값
+                    dst.Set(dv);
+                    return true;
+
+                case StorageType.Integer:
+                    int iv = src.AsInteger();
+                    if (dst.AsInteger() == iv) return false;
+                    dst.Set(iv);
+                    return true;
+
+                case StorageType.String:
+                    string sv = src.AsString() ?? "";
+                    if ((dst.AsString() ?? "") == sv) return false;
+                    dst.Set(sv);
+                    return true;
+
+                case StorageType.ElementId:
+                    ElementId ev = src.AsElementId();
+                    if (dst.AsElementId() == ev) return false;
+                    dst.Set(ev);
+                    return true;
+
+                default:
+                    return false;
+            }
         }
 
         /// <summary>

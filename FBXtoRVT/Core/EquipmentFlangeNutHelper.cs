@@ -21,6 +21,10 @@ namespace FBXtoRVT.Core
     ///   - 열린 커넥터 1개(Primary)      : 위와 동일
     ///   - 열린 커넥터 1개(Primary 아님)  : "FLANGE 상" 해제 후 그 열린 커넥터를 대상 커넥터에 연결
     ///
+    ///  FLANGE 중 이름(패밀리명 또는 타입명)에 "BELLOWS" 가 들어간 것은 상/하가 반대다.
+    ///   - Primary      : "FLANGE 상" 해제
+    ///   - Primary 아님  : "FLANGE 하" 해제
+    ///
     ///  NUT (파라미터 해제 없음)
     ///   - 열린 커넥터 2개 : Primary 커넥터를 대상 커넥터에 연결
     ///   - 열린 커넥터 1개 : 그 열린 커넥터를 대상 커넥터에 연결
@@ -30,6 +34,9 @@ namespace FBXtoRVT.Core
         // 대상 패밀리명 키워드
         private const string FlangeFamilyKeyword = "FLANGE";
         private const string NutFamilyKeyword = "NUT";
+
+        // 상/하 해제 규칙이 반대가 되는 부품 이름 키워드
+        private const string BellowsKeyword = "BELLOWS";
 
         // 해제 대상 YES/NO 인스턴스 파라미터 이름
         private const string ParamFlangeLower = "FLANGE 하";
@@ -185,6 +192,9 @@ namespace FBXtoRVT.Core
             // 2) 부품의 열린 커넥터 개수에 따라 처리 방법 결정
             List<Connector> openConns = ElementUtils.GetOpenEndConnectors(part);
 
+            // 이름에 BELLOWS 가 들어간 부품은 상/하 해제 규칙이 반대다
+            bool isBellows = ElementUtils.NameContains(part, BellowsKeyword);
+
             string paramToUncheck = null; // 해제할 파라미터 (NUT 은 없음)
             bool usePrimary;              // Primary 커넥터를 쓸지 여부
             int chosenConnectorId = -1;   // Primary 를 쓰지 않을 때 사용할 커넥터 Id
@@ -193,7 +203,7 @@ namespace FBXtoRVT.Core
             {
                 // 열린 커넥터 2개 → Primary 커넥터 사용
                 usePrimary = true;
-                if (isFlange) paramToUncheck = ParamFlangeLower;
+                if (isFlange) paramToUncheck = GetFlangeParamToUncheck(true, isBellows);
             }
             else if (openConns.Count == 1)
             {
@@ -209,14 +219,14 @@ namespace FBXtoRVT.Core
                 {
                     // FLANGE + Primary → 2개일 때와 동일하게 처리
                     usePrimary = true;
-                    paramToUncheck = ParamFlangeLower;
+                    paramToUncheck = GetFlangeParamToUncheck(true, isBellows);
                 }
                 else
                 {
-                    // FLANGE + Primary 아님 → "FLANGE 상" 해제 후 그 커넥터 사용
+                    // FLANGE + Primary 아님 → 그 커넥터를 사용
                     usePrimary = false;
                     chosenConnectorId = only.Id;
-                    paramToUncheck = ParamFlangeUpper;
+                    paramToUncheck = GetFlangeParamToUncheck(false, isBellows);
                 }
             }
             else
@@ -263,6 +273,22 @@ namespace FBXtoRVT.Core
             {
                 AddFailed(isFlange, result);
             }
+        }
+
+        /// <summary>
+        /// FLANGE 에서 해제할 파라미터 이름을 고른다.
+        ///
+        ///  보통 FLANGE : Primary 이면 "FLANGE 하", 아니면 "FLANGE 상"
+        ///  BELLOWS     : 위와 반대로 Primary 이면 "FLANGE 상", 아니면 "FLANGE 하"
+        /// </summary>
+        /// <param name="isPrimary">Primary 커넥터를 쓰는 경우인지</param>
+        /// <param name="isBellows">부품 이름에 BELLOWS 가 들어있는지</param>
+        private static string GetFlangeParamToUncheck(bool isPrimary, bool isBellows)
+        {
+            if (isBellows)
+                return isPrimary ? ParamFlangeUpper : ParamFlangeLower;
+
+            return isPrimary ? ParamFlangeLower : ParamFlangeUpper;
         }
 
         /// <summary>실패 수를 부품 종류에 맞게 증가.</summary>

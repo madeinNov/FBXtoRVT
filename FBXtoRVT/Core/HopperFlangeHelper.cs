@@ -8,9 +8,13 @@ namespace FBXtoRVT.Core
     /// "HOPPER&amp;플랜지" 기능의 핵심 로직.
     ///
     /// 처리 흐름 (HOPPER 1대 기준)
-    ///  1) 현재 뷰에서 패밀리명에 "HOPPER" 가 포함된 객체와 그 바운딩 박스를 모은다.
-    ///  2) 그 박스 안에 중심점이 들어가는 FLANGE(패밀리명에 "FLANGE" 포함)가
+    ///  1) 현재 뷰에서 패밀리명에 "HOPPER" 가 포함된 객체의 바운딩 박스를 구하고,
+    ///     모든 방향으로 50mm 키운다.
+    ///  2) 그 박스 안에 "중심점 또는 커넥터점" 이 들어가는 FLANGE(패밀리명에 "FLANGE" 포함)가
     ///     "딱 1개" 일 때만 그 플랜지를 연결 대상으로 인식한다.
+    ///  2-1) HOPPER 의 모든 커넥터 굵기(ND)가 서로 같을 때에 한해,
+    ///     플랜지의 "ND1" 값을 HOPPER 의 "ND1" 에 복사한다.
+    ///     (HOPPER 커넥터가 50A / 75A 처럼 서로 다르면 복사하지 않는다)
     ///  3) 플랜지의 커넥터 중 HOPPER 에 가까운 쪽이 Primary 커넥터인지 조사하고,
     ///     플랜지 종류에 따라 아래 파라미터를 해제한다.
     ///
@@ -42,6 +46,12 @@ namespace FBXtoRVT.Core
         private const string ParamFlangeLower = "FLANGE 하";
         private const string ParamFlangeUpper = "FLANGE 상";
 
+        // 플랜지 -> HOPPER 로 값을 옮길 파라미터 이름(구경)
+        private const string ParamNd1 = "ND1";
+
+        // HOPPER 바운딩 박스 확장량(mm). 모든 방향(X/Y/Z 앞뒤)으로 이만큼 키운다.
+        private const double HopperBoxExpandMm = 50.0;
+
         /// <summary>플랜지 종류.</summary>
         private enum FlangeKind
         {
@@ -60,6 +70,8 @@ namespace FBXtoRVT.Core
             public int TargetFlangeCount;    // 연결 대상으로 인식한 플랜지 수(박스 안에 딱 1개)
             public int SkippedCount;         // 박스 안 플랜지가 0개이거나 2개 이상이라 건너뛴 HOPPER 수
             public int ParamUncheckedCount;  // 실제로 해제한 파라미터 수
+            public int Nd1CopiedCount;       // 플랜지 ND1 을 HOPPER 에 복사한 수
+            public int Nd1SkippedMixedCount; // HOPPER 커넥터 ND 가 서로 달라 복사하지 않은 수
             public int ConnectedCount;       // 연결 성공 수
             public int FailedCount;          // 연결 실패 수
         }
@@ -95,7 +107,7 @@ namespace FBXtoRVT.Core
                 ProcessOneHopper(doc, hopperId, flangeIds, usedFlangeIds, result);
             }
 
-            LogUtils.Log($"===== HOPPER&플랜지 실행 종료. 대상={result.TargetFlangeCount} 건너뜀={result.SkippedCount} 파라미터해제={result.ParamUncheckedCount} 연결성공={result.ConnectedCount} 연결실패={result.FailedCount} =====");
+            LogUtils.Log($"===== HOPPER&플랜지 실행 종료. 대상={result.TargetFlangeCount} 건너뜀={result.SkippedCount} 파라미터해제={result.ParamUncheckedCount} ND1복사={result.Nd1CopiedCount} ND1미적용(커넥터ND불일치)={result.Nd1SkippedMixedCount} 연결성공={result.ConnectedCount} 연결실패={result.FailedCount} =====");
 
             return result;
         }
@@ -116,10 +128,13 @@ namespace FBXtoRVT.Core
                 return;
             }
 
-            XYZ hopperCenter = hopperBox.Center;
-            LogUtils.Log($"HOPPER(Id={hopperId}) box Min={FormatXyz(hopperBox.Min)} Max={FormatXyz(hopperBox.Max)}");
+            // 박스를 모든 방향으로 50mm 키운다. (플랜지가 살짝 벗어나 있어도 잡히도록)
+            hopperBox = hopperBox.ExpandAll(ElementUtils.MmToFeet(HopperBoxExpandMm));
 
-            // 1) 박스 안에 중심점이 들어가는 플랜지를 센다. 딱 1개일 때만 대상.
+            XYZ hopperCenter = hopperBox.Center;
+            LogUtils.Log($"HOPPER(Id={hopperId}) box(+{HopperBoxExpandMm}mm) Min={FormatXyz(hopperBox.Min)} Max={FormatXyz(hopperBox.Max)}");
+
+            // 1) 박스 안에 "중심점 또는 커넥터점" 이 들어가는 플랜지를 센다. 딱 1개일 때만 대상.
             ElementId targetFlangeId = null;
             int insideCount = 0;
 
@@ -132,8 +147,11 @@ namespace FBXtoRVT.Core
                 if (flange == null) continue;
 
                 XYZ center = ElementUtils.GetCenter(flange);
-                bool inside = center != null && hopperBox.Contains(center);
-                LogUtils.Log($"  후보 FLANGE(Id={id}, Family={GetFamilyName(flange)}) center={FormatXyz(center)} inside={inside}");
+                bool centerInside = center != null && hopperBox.Contains(center);
+                bool connInside = IsAnyConnectorInside(flange, hopperBox);
+
+                bool inside = centerInside || connInside;
+                LogUtils.Log($"  후보 FLANGE(Id={id}, Family={GetFamilyName(flange)}) center={FormatXyz(center)} 중심점inside={centerInside} 커넥터점inside={connInside}");
                 if (!inside) continue;
 
                 insideCount++;
@@ -148,6 +166,9 @@ namespace FBXtoRVT.Core
             }
 
             result.TargetFlangeCount++;
+
+            // 1-1) HOPPER 의 모든 커넥터 굵기(ND)가 같을 때만, 플랜지의 ND1 을 HOPPER 의 ND1 에 복사
+            CopyNd1ToHopper(doc, hopperId, targetFlangeId, result);
 
             // 2) 플랜지 커넥터 중 HOPPER 에 가까운 쪽을 고르고, Primary 인지 조사
             Element targetFlange = doc.GetElement(targetFlangeId);
@@ -218,6 +239,67 @@ namespace FBXtoRVT.Core
             }
         }
 
+        /// <summary>
+        /// 객체의 End 커넥터 원점 중 하나라도 박스 안에 들어가면 true.
+        /// </summary>
+        private static bool IsAnyConnectorInside(Element e, ElementUtils.WorldBox box)
+        {
+            foreach (Connector c in ElementUtils.GetEndConnectors(e))
+            {
+                if (box.Contains(c.Origin)) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 플랜지의 "ND1" 값을 HOPPER 의 "ND1" 에 복사한다.
+        ///
+        /// 단, HOPPER 의 모든 커넥터 굵기(ND)가 서로 같을 때만 복사한다.
+        /// HOPPER 가 50A / 75A 처럼 서로 다른 커넥터를 갖고 있으면, ND1 하나만 바꾸면
+        /// 나머지 커넥터까지 잘못 바뀔 수 있으므로 아무것도 하지 않는다.
+        ///
+        /// 값을 바꾸면 형상이 달라지므로 곧바로 Regenerate 한다.
+        /// (이후 HOPPER 커넥터는 반드시 다시 조회해야 한다)
+        /// </summary>
+        private static void CopyNd1ToHopper(Document doc, ElementId hopperId, ElementId flangeId, RunResult result)
+        {
+            Element hopper = doc.GetElement(hopperId);
+            Element flange = doc.GetElement(flangeId);
+            if (hopper == null || flange == null) return;
+
+            // HOPPER 의 모든 커넥터 굵기를 비교 (연결 여부와 상관없이 전체를 본다)
+            List<Connector> hopperConns = ElementUtils.GetEndConnectors(hopper);
+            if (hopperConns.Count == 0)
+            {
+                LogUtils.Log($"HOPPER(Id={hopperId}) 커넥터가 없어 ND1 복사를 건너뜀.");
+                return;
+            }
+
+            string firstSizeKey = ElementUtils.GetConnectorSizeKey(hopperConns[0]);
+            foreach (Connector c in hopperConns)
+            {
+                if (ElementUtils.GetConnectorSizeKey(c) == firstSizeKey) continue;
+
+                LogUtils.Log($"HOPPER(Id={hopperId}) 커넥터 ND 가 서로 다름 -> ND1 복사 안 함. " +
+                    string.Join(", ", hopperConns.ConvertAll(x => $"[Id={x.Id} size={ElementUtils.GetConnectorSizeKey(x)}]")));
+                result.Nd1SkippedMixedCount++;
+                return;
+            }
+
+            // 모든 커넥터 ND 가 같으므로 복사
+            if (ElementUtils.CopyParamValue(flange, hopper, ParamNd1))
+            {
+                result.Nd1CopiedCount++;
+                doc.Regenerate(); // ND1 이 바뀌면 형상/커넥터가 바뀐다
+                LogUtils.Log($"HOPPER(Id={hopperId}) <- FLANGE(Id={flangeId}) 의 {ParamNd1} 값 복사 완료.");
+            }
+            else
+            {
+                LogUtils.Log($"HOPPER(Id={hopperId}) {ParamNd1} 복사 안 됨(파라미터 없음 / 읽기전용 / 이미 같은 값).");
+            }
+        }
+
         private static string GetFamilyName(Element e)
         {
             var fi = e as FamilyInstance;
@@ -259,24 +341,11 @@ namespace FBXtoRVT.Core
 
         /// <summary>
         /// 객체의 End 커넥터 중 기준점에 가장 가까운 것을 반환. 없으면 null.
-        /// (거리가 같으면 먼저 만난 것 = 둘 중 아무거나)
+        /// (공통 유틸에 같은 계산이 있으므로 그대로 쓴다)
         /// </summary>
         private static Connector FindNearestEndConnector(Element e, XYZ target)
         {
-            Connector best = null;
-            double bestDist = double.MaxValue;
-
-            foreach (Connector c in ElementUtils.GetEndConnectors(e))
-            {
-                double dist = c.Origin.DistanceTo(target);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    best = c;
-                }
-            }
-
-            return best;
+            return ElementUtils.FindNearestEndConnector(e, target);
         }
 
         /// <summary>

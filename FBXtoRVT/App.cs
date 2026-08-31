@@ -99,7 +99,8 @@ namespace FBXtoRVT
                 "패밀리명에 'SCRUBBER' 가 포함된 장비의 바운딩 박스 안에서 'FLANGE' / 'NUT' 부품을 찾고, " +
                 "부품 바운딩 박스 안에 장비의 열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 " +
                 "인식합니다. FLANGE 는 열린 커넥터 개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 " +
-                "해제한 뒤 연결하고, NUT 은 파라미터 변경 없이 연결합니다. (부품이 이동·회전)",
+                "해제한 뒤 연결하고(이름에 'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 " +
+                "변경 없이 연결합니다. (부품이 이동·회전)",
                 "S", Colors.DarkSlateBlue);
 
             AddButton(panel, assemblyPath,
@@ -107,9 +108,11 @@ namespace FBXtoRVT
                 "겹침 객체\n선택",
                 "FBXtoRVT.Commands.OverlapSelectCommand",
                 "Main 객체의 바운딩 박스 안에 중심점이 들어가는(= 겹치는) Sub 객체를 선택합니다.",
-                "실행하면 Main / Sub 문자열을 입력받아, 현재 뷰에서 이름에 Main 이 포함된 객체의 " +
-                "바운딩 박스를 모으고, 이름에 Sub 가 포함된 객체의 중심점이 그 박스 안에 들어가면 " +
-                "해당 Sub 객체를 선택합니다. 겹쳐서 남아 있는 객체를 한 번에 확인·정리할 때 씁니다.",
+                "실행하면 프리셋(ADPT / BELLOWS ...)을 고르거나 Main / Sub 문자열을 직접 입력받아, " +
+                "현재 뷰에서 이름에 Main 이 포함된 객체의 바운딩 박스를 모으고, 이름에 Sub 가 포함된 " +
+                "객체의 중심점이 그 박스 안에 들어가면 해당 Sub 객체를 선택합니다. Main 객체 자신은 " +
+                "Sub 조건을 만족하더라도 선택하지 않습니다. 겹쳐서 남아 있는 객체를 한 번에 " +
+                "확인·정리할 때 씁니다.",
                 "겹", Colors.SeaGreen);
         }
 
@@ -120,20 +123,26 @@ namespace FBXtoRVT
         {
             RibbonPanel panel = application.CreateRibbonPanel(TabName, "공용");
 
+            // "직각 배관 생성기" 는 사용하지 않기로 해서 버튼(아이콘)을 제거했다.
+            // 기능 코드도 Commands/RightAnglePipeCommand.cs, Core/RightAnglePipeHelper.cs 에서
+            // 통째로 주석 처리해 두었으므로, 되살리려면 그 두 파일의 주석을 풀고
+            // 여기에 AddButton 을 다시 추가하면 된다.
+            // (아래 "직각 배관 연결기" 는 이름은 비슷하지만 다른 기능이다.
+            //  생성기는 "직각인 두 배관" 을, 연결기는 "평행한 두 배관" 을 대상으로 한다)
+
             AddButton(panel, assemblyPath,
-                "RightAnglePipeButton",
-                "직각 배관\n생성기",
-                "FBXtoRVT.Commands.RightAnglePipeCommand",
-                "이어줄 배관들을 한 번에 고르면, 알아서 짝지어 사잇배관을 생성합니다.",
-                "이어줄 배관들을 한 번에 선택합니다(여러 개 가능, 배관만 선택 가능). 두 배관의 " +
-                "중심선이 직각이면서 연장해도 만나지 않으면(꼬인 위치), 두 직선의 공통수선을 구해 " +
-                "그 구간에 사잇배관을 만듭니다. 사잇배관의 양 끝점이 두 배관의 연장선 위에 정확히 " +
-                "놓이므로, 이후 Trim 으로 Elbow 를 넣을 수 있습니다(Elbow 삽입은 하지 않습니다). " +
-                "짝짓기는 조건을 만족하는 조합 중 서로 가장 가까운 쌍부터 배정하며, 한 번 짝지어진 " +
-                "배관은 다시 쓰지 않습니다. 배관 타입·System Type·지름은 그 쌍에서 중심점 Z 가 더 " +
-                "높은 배관을 따라갑니다(Z 가 같으면 결과가 일정하도록 Element Id 가 작은 쪽). " +
-                "짝을 짓지 못한 배관은 사유를 요약해 보여줍니다.",
-                "직", Colors.SteelBlue);
+                "RightAngleConnectButton",
+                "직각 배관\n연결기",
+                "FBXtoRVT.Commands.RightAngleConnectCommand",
+                "평행한 두 배관을 차례로 클릭하면 직각 배관을 만들고 엘보까지 넣어 연결합니다.",
+                "평행한 첫 번째 배관, 두 번째 배관을 차례로 클릭합니다. 두 배관 중심선의 공통수선을 " +
+                "구해 그 자리에 직각(90도) 배관을 만들고, 양쪽에 엘보를 넣어 세 배관을 하나로 " +
+                "연결합니다(대각 배관 생성기의 90도 버전이며, Trim 까지 대신 해 줍니다). 직각 배관은 " +
+                "두 배관에서 서로 마주보는 쪽 끝의 가운데에 세우고, 각 배관의 끝을 그 자리까지 " +
+                "늘리거나 줄입니다. 이어 붙일 쪽 커넥터에 캡·플랜지·기존 엘보 같은 부품이 붙어 " +
+                "있으면 먼저 지웁니다. 배관 타입·System Type·지름은 항상 첫 번째로 고른 배관을 " +
+                "따라갑니다. 두 배관이 평행하지 않거나 같은 직선 위에 있으면 실행하지 않습니다.",
+                "연", Colors.SteelBlue);
 
             AddButton(panel, assemblyPath,
                 "ElbowConnectButton",
@@ -152,10 +161,12 @@ namespace FBXtoRVT
                 "HOPPER&\n플랜지",
                 "FBXtoRVT.Commands.HopperFlangeCommand",
                 "HOPPER 안에 FLANGE 가 딱 1개일 때, 파라미터를 정리하고 HOPPER 를 연결합니다.",
-                "현재 뷰에서 패밀리명에 'HOPPER' 가 포함된 객체의 바운딩 박스를 구하고, 그 안에 중심점이 " +
-                "들어가는 FLANGE 가 정확히 1개일 때만 대상으로 인식합니다. HOPPER 에 가까운 쪽 플랜지 " +
-                "커넥터가 Primary 인지에 따라 NW FLANGE 는 'FLANGE 하'/'FLANGE 상' 을, DC FLANGE 는 " +
-                "'FLANGE 상'/'FLANGE 하' 를 해제합니다(BLIND FLANGE 는 변경 없음). 이어서 HOPPER 의 " +
+                "현재 뷰에서 패밀리명에 'HOPPER' 가 포함된 객체의 바운딩 박스를 모든 방향으로 50mm 확장한 " +
+                "뒤, 그 안에 중심점 또는 커넥터점이 들어가는 FLANGE 가 정확히 1개일 때만 대상으로 " +
+                "인식합니다. HOPPER 의 모든 커넥터 굵기(ND)가 서로 같으면 플랜지의 'ND1' 값을 HOPPER 의 " +
+                "'ND1' 에 넣습니다(50A/75A 처럼 서로 다르면 넣지 않습니다). 이어서 HOPPER 에 가까운 쪽 " +
+                "플랜지 커넥터가 Primary 인지에 따라 NW FLANGE 는 'FLANGE 하'/'FLANGE 상' 을, DC FLANGE 는 " +
+                "'FLANGE 상'/'FLANGE 하' 를 해제하고(BLIND FLANGE 는 변경 없음), HOPPER 의 " +
                 "Primary 가 아닌 커넥터를 그 플랜지 커넥터에 이동·회전으로 연결합니다.",
                 "홉", Colors.Crimson);
 
@@ -168,8 +179,9 @@ namespace FBXtoRVT
                 "Mechanical Equipment 카테고리 전체입니다. 장비의 바운딩 박스를 모든 방향으로 20mm " +
                 "확장한 뒤 그 안에서 'FLANGE' / 'NUT' 부품을 찾고, 부품 바운딩 박스 안에 장비의 열린 " +
                 "커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 열린 커넥터 " +
-                "개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 해제한 뒤 연결하고, NUT 은 파라미터 " +
-                "변경 없이 연결합니다. (부품이 이동·회전)",
+                "개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 해제한 뒤 연결하고(이름에 " +
+                "'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 변경 없이 연결합니다. " +
+                "(부품이 이동·회전)",
                 "장", Colors.DarkCyan);
 
             AddButton(panel, assemblyPath,
@@ -187,10 +199,13 @@ namespace FBXtoRVT
                 "LinkVisibilityButton",
                 "LINK\nON/OFF",
                 "FBXtoRVT.Commands.LinkVisibilityCommand",
-                "현재 뷰에서 링크된 RVT 모델(Coordination Model)의 가시성을 켜짐/꺼짐 토글합니다.",
-                "실행할 때마다 현재 뷰의 'RVT Links' 카테고리 가시성을 켜짐 ↔ 꺼짐으로 전환합니다. " +
-                "대화상자 없이 즉시 토글되므로, Revit 의 키보드 단축키(사용자 인터페이스 > 단축키)에 " +
-                "등록해 반복적으로 켜고 끄는 용도로 씁니다.",
+                "좌표조정 모델(Coordination Model, nwc) 링크의 가시성을 켜짐/꺼짐 토글합니다.",
+                "실행할 때마다 현재 뷰의 'Coordination Model' 카테고리 가시성을 켜짐 ↔ 꺼짐으로 " +
+                "전환합니다. Insert > Coordination Model 로 붙인 Navisworks 링크(.nwc/.nwd)가 " +
+                "대상이며, RVT 링크는 건드리지 않습니다. 뷰 템플릿이 가시성을 잠그고 있어서 " +
+                "카테고리로 바꿀 수 없으면, 좌표조정 모델 객체를 직접 숨기기/숨기기 해제 하는 " +
+                "방식으로 대신 처리합니다. 대화상자 없이 즉시 토글되므로, Revit 의 키보드 " +
+                "단축키(사용자 인터페이스 > 단축키)에 등록해 반복적으로 켜고 끄는 용도로 씁니다.",
                 "L", Colors.SlateGray);
         }
 

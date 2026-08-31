@@ -19,9 +19,26 @@ namespace FBXtoRVT.Commands
         // 창 제목 겸 결과 대화상자 제목
         private const string FeatureTitle = "겹침 객체 선택";
 
-        // 입력창 기본값
-        private const string MainDefault = "ASSEMBLY_ELBOW_ADPT_LOT-FLON";
-        private const string SubDefault = "ASSEMBLY_DC CLAMP_ADAPTOR_ADPT_LOT-FLON";
+        // 입력창 위쪽 프리셋(라디오) 목록.
+        // 3~5번은 아직 정하지 않았으므로 선택 불가 상태로 자리만 만들어 둔다.
+        // (나중에 문자열만 채우고 마지막 인자를 true 로 바꾸면 바로 쓸 수 있다)
+        private static readonly MainSubPreset[] Presets = new[]
+        {
+            new MainSubPreset("ADPT",
+                "ASSEMBLY_ELBOW_ADPT_LOT-FLON",
+                "ASSEMBLY_DC CLAMP_ADAPTOR_ADPT_LOT-FLON"),
+
+            new MainSubPreset("BELLOWS",
+                "BELLOWS",
+                "FLANGE"),
+
+            new MainSubPreset("미정3", "", "", false),
+            new MainSubPreset("미정4", "", "", false),
+            new MainSubPreset("미정5", "", "", false),
+        };
+
+        // 창을 열었을 때 처음 골라 둘 프리셋 번호 (0 = ADPT)
+        private const int DefaultPresetIndex = 0;
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
@@ -43,8 +60,8 @@ namespace FBXtoRVT.Commands
                 return Result.Failed;
             }
 
-            // 2) Main / Sub 입력창 표시
-            var window = new MainSubWindow(FeatureTitle, MainDefault, SubDefault);
+            // 2) Main / Sub 입력창 표시 (위쪽 프리셋 라디오로 자주 쓰는 조합을 고를 수 있다)
+            var window = new MainSubWindow(FeatureTitle, Presets, DefaultPresetIndex);
             new WindowInteropHelper(window).Owner = uiApp.MainWindowHandle;
 
             bool? dialogResult = window.ShowDialog();
@@ -70,6 +87,12 @@ namespace FBXtoRVT.Commands
                     $"Main('{mainKeyword}') 객체: {runResult.MainCount}개\n" +
                     $"Sub('{subKeyword}') 객체: {runResult.SubCount}개\n\n" +
                     $"Main 과 겹쳐서 선택된 Sub 객체: {runResult.Selected.Count}개";
+
+                // Main 이 Sub 조건까지 만족한 경우가 있으면, 왜 뺐는지 같이 알려준다
+                if (runResult.MainAlsoMatchedSubCount > 0)
+                {
+                    summary += $"\n(Sub 조건도 만족했지만 Main 이라 제외: {runResult.MainAlsoMatchedSubCount}개)";
+                }
 
                 TaskDialog.Show(FeatureTitle, summary);
                 return Result.Succeeded;
