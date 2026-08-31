@@ -200,13 +200,14 @@ namespace FBXtoRVT
                 "LinkVisibilityButton",
                 "LINK\nON/OFF",
                 "FBXtoRVT.Commands.LinkVisibilityCommand",
-                "좌표조정 모델(Coordination Model, nwc) 링크의 가시성을 켜짐/꺼짐 토글합니다.",
-                "실행할 때마다 현재 뷰의 'Coordination Model' 카테고리 가시성을 켜짐 ↔ 꺼짐으로 " +
-                "전환합니다. Insert > Coordination Model 로 붙인 Navisworks 링크(.nwc/.nwd)가 " +
-                "대상이며, RVT 링크는 건드리지 않습니다. 뷰 템플릿이 가시성을 잠그고 있어서 " +
-                "카테고리로 바꿀 수 없으면, 좌표조정 모델 객체를 직접 숨기기/숨기기 해제 하는 " +
-                "방식으로 대신 처리합니다. 대화상자 없이 즉시 토글되므로, Revit 의 키보드 " +
-                "단축키(사용자 인터페이스 > 단축키)에 등록해 반복적으로 켜고 끄는 용도로 씁니다.",
+                "좌표조정 모델(Coordination Model, nwc) 링크를 현재 뷰에서 보이게/안 보이게 토글합니다.",
+                "Insert > Coordination Model 로 붙인 Navisworks 링크(.nwc/.nwd)가 대상이며, " +
+                "RVT 링크는 건드리지 않습니다. 좌표조정 모델은 Revit 이 카테고리 숨기기나 객체 " +
+                "숨기기를 허용하지 않으므로, 'FBXtoRVT 좌표조정모델 ON/OFF' 라는 선택 필터를 만들어 " +
+                "현재 뷰에 걸고 그 필터의 가시성을 켜짐 ↔ 꺼짐으로 전환합니다(필터는 V/G 의 Filters " +
+                "탭에 보이며, 지워도 다시 만들어집니다). V/G 의 'Coordination Models' 탭 체크는 켜진 " +
+                "채로 남고 화면에만 안 보이게 되는 방식입니다. 대화상자 없이 즉시 토글되므로, " +
+                "Revit 의 키보드 단축키(사용자 인터페이스 > 단축키)에 등록해 쓰면 편합니다.",
                 "L", Colors.SlateGray);
         }
 
