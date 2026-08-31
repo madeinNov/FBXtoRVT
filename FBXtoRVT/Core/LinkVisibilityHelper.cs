@@ -13,17 +13,20 @@ namespace FBXtoRVT.Core
     /// Revit 카테고리로는 "Coordination Model"(OST_Coordination_Model) 이다.
     /// <b>RVT 링크는 건드리지 않는다.</b>
     ///
-    /// [처리 순서]
-    ///  1) 카테고리 단위로 끌 수 있으면(뷰 템플릿에 잠겨 있지 않고 CanCategoryBeHidden 이 true)
-    ///     "Coordination Model" 카테고리 가시성을 토글한다.
-    ///  2) 그럴 수 없으면(뷰 템플릿이 가시성을 잠근 경우 등), 좌표조정 모델 <b>객체</b>를
-    ///     직접 숨기기/숨기기 해제 한다. 객체 단위 숨기기는 템플릿과 무관하게 항상 가능하다.
-    ///  3) 문서에 좌표조정 모델이 하나도 없을 때만 안내 예외를 던진다.
+    /// [처리 순서 — 되는 방법을 차례로 시도한다]
+    ///  1) 카테고리 가시성 토글.
+    ///     카테고리 Id 는 <c>Category.GetCategory</c> 로 찾지 않고
+    ///     <c>new ElementId(BuiltInCategory.OST_Coordination_Model)</c> 로 바로 만든다.
+    ///     좌표조정 모델은 문서의 카테고리 목록에 안 잡히는 경우가 있어서,
+    ///     <c>Category.GetCategory</c> 가 null 을 돌려주면 이 방법을 아예 못 써 보게 되기 때문이다.
+    ///  2) 좌표조정 모델 <b>객체</b>를 직접 숨기기 / 숨기기 해제.
+    ///  3) 둘 다 안 되면, <b>어디서 막혔는지 진단 내용을 붙여서</b> 안내한다.
+    ///     (뷰 이름 / 뷰 종류 / 뷰 템플릿 / 찾은 개수 / 각 단계의 실패 사유)
     ///
-    /// 예전에는 "RVT Links" 카테고리를 대상으로 삼고,
-    /// <c>Category.AllowsVisibilityControl(view)</c> 가 false 이면 곧바로
-    /// "현재 뷰에서는 링크 가시성을 제어할 수 없습니다" 창을 띄웠다.
-    /// 지금은 대상도 바뀌었고, 카테고리로 안 되면 객체 숨기기로 넘어가므로 그 창이 뜨지 않는다.
+    /// [뷰 템플릿이 잠근 경우]
+    /// 뷰에 템플릿이 걸려 있고 그 템플릿이 좌표조정 모델 V/G 를 제어하면,
+    /// 뷰에서 카테고리를 바꿔도 화면이 바뀌지 않는다(조용히 무시된다).
+    /// 그래서 이 경우에는 카테고리 방법을 건너뛰고 객체 숨기기로 넘어간다.
     /// </summary>
     public static class LinkVisibilityHelper
     {
@@ -43,87 +46,195 @@ namespace FBXtoRVT.Core
         /// </summary>
         public static ToggleResult ToggleLinkVisibility(Document doc, View view)
         {
+            // 실패했을 때 사용자에게 보여줄 진단 메모. 단계마다 한 줄씩 쌓는다.
+            var diagnosis = new List<string>();
+
+            var categoryId = new ElementId(CoordinationModelCategory);
+
             // 문서 전체에서 좌표조정 모델을 모은다.
             //
             // 주의: 뷰를 지정한 FilteredElementCollector(doc, view.Id) 는 "그 뷰에 보이는" 객체만
             // 돌려주므로, 한 번 숨기고 나면 다시 찾지 못해 켤 수가 없다. 그래서 문서 전체로 모은다.
-            List<ElementId> linkIds = CollectCoordinationModelIds(doc);
+            List<ElementId> linkIds = CollectCoordinationModelIds(doc, diagnosis);
 
-            // 1) 카테고리 단위로 처리할 수 있으면 그렇게 한다.
-            Category category = Category.GetCategory(doc, CoordinationModelCategory);
+            diagnosis.Insert(0, $"뷰: {view.Name} (종류 {view.ViewType})");
 
-            if (category != null
-                && view.CanCategoryBeHidden(category.Id)
-                && !IsCoordinationModelLockedByTemplate(doc, view))
+            LogUtils.Log($"===== LINK ON/OFF 시작. 뷰={view.Name}({view.ViewType}) 좌표조정모델={linkIds.Count}개 =====");
+
+            // 뷰 템플릿이 좌표조정 모델 가시성을 잠그고 있는지 확인
+            string templateName;
+            bool lockedByTemplate = IsLockedByTemplate(doc, view, out templateName);
+
+            diagnosis.Add(templateName == null
+                ? "뷰 템플릿: 없음"
+                : $"뷰 템플릿: '{templateName}' ({(lockedByTemplate ? "좌표조정 모델 가시성을 잠그고 있음" : "잠그지 않음")})");
+
+            // ===== 1) 카테고리 가시성 =====
+            if (!lockedByTemplate)
             {
-                try
-                {
-                    bool currentlyHidden = view.GetCategoryHidden(category.Id);
-                    view.SetCategoryHidden(category.Id, !currentlyHidden);
-
-                    return new ToggleResult
-                    {
-                        NowVisible = currentlyHidden, // 숨겨져 있었으면 이제 켜진 것
-                        UsedCategory = true,
-                        LinkCount = linkIds.Count
-                    };
-                }
-                catch (Exception ex)
-                {
-                    // 카테고리로 못 바꾸면 아래 객체 숨기기로 넘어간다.
-                    LogUtils.LogError(ex, "좌표조정 모델 카테고리 가시성 변경 실패. 객체 숨기기로 대신 시도합니다.");
-                }
+                ToggleResult categoryResult = TryToggleCategory(view, categoryId, linkIds.Count, diagnosis);
+                if (categoryResult != null) return categoryResult;
+            }
+            else
+            {
+                diagnosis.Add("카테고리 방법: 건너뜀 (뷰 템플릿이 잠금)");
             }
 
-            // 2) 객체 단위 숨기기/해제
+            // ===== 2) 객체 숨기기 / 해제 =====
             if (linkIds.Count == 0)
                 throw new InvalidOperationException(
-                    "이 문서에 좌표조정 모델(Coordination Model) 링크가 없어서 켜고 끌 것이 없습니다.");
+                    "이 문서에 좌표조정 모델(Coordination Model) 링크가 없어서 켜고 끌 것이 없습니다.\n\n"
+                    + BuildDiagnosisText(diagnosis));
 
+            ToggleResult elementResult = TryToggleElements(doc, view, linkIds, diagnosis);
+            if (elementResult != null) return elementResult;
+
+            // ===== 3) 둘 다 실패 =====
+            string help = lockedByTemplate
+                ? $"이 뷰에는 뷰 템플릿 '{templateName}' 이(가) 걸려 있고, 그 템플릿이 좌표조정 모델의 " +
+                  "가시성을 제어하고 있습니다.\n" +
+                  "뷰 템플릿에서 좌표조정 모델 항목의 체크를 풀거나(그러면 뷰마다 따로 켜고 끌 수 있습니다), " +
+                  "템플릿 자체의 좌표조정 모델 가시성을 바꿔야 합니다."
+                : "현재 뷰에서는 좌표조정 모델을 켜고 끌 수 없습니다.";
+
+            LogUtils.Log("LINK ON/OFF 실패. " + string.Join(" / ", diagnosis));
+
+            throw new InvalidOperationException(help + "\n\n" + BuildDiagnosisText(diagnosis));
+        }
+
+        // ===== 1) 카테고리 가시성 =====
+
+        /// <summary>
+        /// 카테고리 가시성으로 토글을 시도한다. 성공하면 결과, 못 하면 null.
+        /// CanCategoryBeHidden 이 false 여도 일단 시도해 본다.
+        /// (이 값이 실제보다 보수적으로 나오는 경우가 있어, 되는데도 안 해보고 넘어가지 않도록)
+        /// </summary>
+        private static ToggleResult TryToggleCategory(View view, ElementId categoryId,
+            int linkCount, List<string> diagnosis)
+        {
+            bool canHide;
+            try
+            {
+                canHide = view.CanCategoryBeHidden(categoryId);
+            }
+            catch (Exception ex)
+            {
+                canHide = false;
+                LogUtils.LogError(ex, "CanCategoryBeHidden 호출 실패.");
+            }
+
+            try
+            {
+                bool currentlyHidden = view.GetCategoryHidden(categoryId);
+                view.SetCategoryHidden(categoryId, !currentlyHidden);
+
+                LogUtils.Log($"카테고리 가시성 토글 성공. 이전숨김={currentlyHidden} -> 이제 {(currentlyHidden ? "켜짐" : "꺼짐")}");
+
+                return new ToggleResult
+                {
+                    NowVisible = currentlyHidden, // 숨겨져 있었으면 이제 켜진 것
+                    UsedCategory = true,
+                    LinkCount = linkCount
+                };
+            }
+            catch (Exception ex)
+            {
+                diagnosis.Add($"카테고리 방법: 실패 (CanCategoryBeHidden={canHide}, {ex.Message})");
+                LogUtils.LogError(ex, "카테고리 가시성 변경 실패. 객체 숨기기로 대신 시도합니다.");
+                return null;
+            }
+        }
+
+        // ===== 2) 객체 숨기기 / 해제 =====
+
+        /// <summary>
+        /// 좌표조정 모델 객체를 직접 숨기거나 켠다. 성공하면 결과, 못 하면 null.
+        /// 하나라도 보이면 전부 숨기고, 전부 숨겨져 있으면 전부 켠다.
+        /// </summary>
+        private static ToggleResult TryToggleElements(Document doc, View view,
+            List<ElementId> linkIds, List<string> diagnosis)
+        {
             var hiddenIds = new List<ElementId>();
             var visibleIds = new List<ElementId>();
+            int cannotHideCount = 0;
 
             foreach (ElementId id in linkIds)
             {
                 Element e = doc.GetElement(id);
                 if (e == null) continue;
-                if (!e.CanBeHidden(view)) continue; // 숨길 수 없는 객체는 건드리지 않는다
 
-                if (e.IsHidden(view)) hiddenIds.Add(id);
+                bool canBeHidden;
+                try
+                {
+                    canBeHidden = e.CanBeHidden(view);
+                }
+                catch (Exception ex)
+                {
+                    canBeHidden = false;
+                    LogUtils.LogError(ex, $"CanBeHidden 호출 실패. Id={id}");
+                }
+
+                LogUtils.Log($"  좌표조정 모델 Id={id} 클래스={e.GetType().Name} 이름='{e.Name}' " +
+                    $"숨김가능={canBeHidden} 현재숨김={SafeIsHidden(e, view)}");
+
+                if (!canBeHidden)
+                {
+                    cannotHideCount++;
+                    continue;
+                }
+
+                if (SafeIsHidden(e, view)) hiddenIds.Add(id);
                 else visibleIds.Add(id);
             }
 
             if (hiddenIds.Count == 0 && visibleIds.Count == 0)
-                throw new InvalidOperationException(
-                    "현재 뷰에서는 좌표조정 모델을 숨기거나 켤 수 없습니다. 뷰 템플릿의 가시성 설정을 확인하세요.");
-
-            // 지금 하나라도 보이면 -> 전부 숨긴다. 전부 숨겨져 있으면 -> 전부 켠다.
-            if (visibleIds.Count > 0)
             {
-                view.HideElements(visibleIds);
-
-                return new ToggleResult
-                {
-                    NowVisible = false,
-                    UsedCategory = false,
-                    LinkCount = visibleIds.Count
-                };
+                diagnosis.Add($"객체 숨기기 방법: 실패 (찾은 {linkIds.Count}개 모두 이 뷰에서 숨길 수 없음)");
+                return null;
             }
 
-            view.UnhideElements(hiddenIds);
-
-            return new ToggleResult
+            try
             {
-                NowVisible = true,
-                UsedCategory = false,
-                LinkCount = hiddenIds.Count
-            };
+                if (visibleIds.Count > 0)
+                {
+                    view.HideElements(visibleIds);
+                    LogUtils.Log($"객체 숨기기 성공. {visibleIds.Count}개를 껐습니다.");
+
+                    return new ToggleResult { NowVisible = false, UsedCategory = false, LinkCount = visibleIds.Count };
+                }
+
+                view.UnhideElements(hiddenIds);
+                LogUtils.Log($"객체 숨기기 해제 성공. {hiddenIds.Count}개를 켰습니다.");
+
+                return new ToggleResult { NowVisible = true, UsedCategory = false, LinkCount = hiddenIds.Count };
+            }
+            catch (Exception ex)
+            {
+                diagnosis.Add($"객체 숨기기 방법: 실패 ({ex.Message})");
+                LogUtils.LogError(ex, "객체 숨기기/해제 실패.");
+                return null;
+            }
         }
+
+        /// <summary>IsHidden 이 예외를 던져도 기능이 멈추지 않도록 감싼다.</summary>
+        private static bool SafeIsHidden(Element e, View view)
+        {
+            try
+            {
+                return e.IsHidden(view);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // ===== 공통 =====
 
         /// <summary>
         /// 문서에 들어있는 좌표조정 모델(Coordination Model) 객체 Id 를 모은다.
         /// </summary>
-        private static List<ElementId> CollectCoordinationModelIds(Document doc)
+        private static List<ElementId> CollectCoordinationModelIds(Document doc, List<string> diagnosis)
         {
             var ids = new List<ElementId>();
 
@@ -139,9 +250,11 @@ namespace FBXtoRVT.Core
             catch (Exception ex)
             {
                 // 좌표조정 모델 카테고리를 쓸 수 없는 문서라면 빈 목록으로 둔다.
+                diagnosis.Add($"좌표조정 모델 수집 실패: {ex.Message}");
                 LogUtils.LogError(ex, "좌표조정 모델 수집 실패.");
             }
 
+            diagnosis.Add($"문서에서 찾은 좌표조정 모델: {ids.Count}개");
             return ids;
         }
 
@@ -149,19 +262,39 @@ namespace FBXtoRVT.Core
         /// 뷰 템플릿이 "좌표조정 모델 가시성/그래픽(V/G)" 을 잠그고 있는지 검사.
         /// 잠겨 있으면 SetCategoryHidden 을 해도 화면이 바뀌지 않으므로, 객체 숨기기로 돌려야 한다.
         /// </summary>
-        private static bool IsCoordinationModelLockedByTemplate(Document doc, View view)
+        /// <param name="templateName">뷰에 걸린 템플릿 이름. 템플릿이 없으면 null.</param>
+        private static bool IsLockedByTemplate(Document doc, View view, out string templateName)
         {
+            templateName = null;
+
             ElementId templateId = view.ViewTemplateId;
             if (templateId == null || templateId == ElementId.InvalidElementId) return false;
 
             var template = doc.GetElement(templateId) as View;
             if (template == null) return false;
 
-            // 템플릿이 "제어하지 않는" 항목 목록. 여기에 들어 있으면 뷰에서 자유롭게 바꿀 수 있다.
-            ICollection<ElementId> nonControlled = template.GetNonControlledTemplateParameterIds();
-            var visibilityParamId = new ElementId(BuiltInParameter.VIS_GRAPHICS_COORDINATION_MODEL);
+            templateName = template.Name;
 
-            return !nonControlled.Any(id => id == visibilityParamId);
+            try
+            {
+                // 템플릿이 "제어하지 않는" 항목 목록. 여기에 들어 있으면 뷰에서 자유롭게 바꿀 수 있다.
+                ICollection<ElementId> nonControlled = template.GetNonControlledTemplateParameterIds();
+                var visibilityParamId = new ElementId(BuiltInParameter.VIS_GRAPHICS_COORDINATION_MODEL);
+
+                return !nonControlled.Any(id => id == visibilityParamId);
+            }
+            catch (Exception ex)
+            {
+                LogUtils.LogError(ex, "뷰 템플릿 잠금 여부 확인 실패. 잠기지 않은 것으로 봅니다.");
+                return false;
+            }
+        }
+
+        /// <summary>진단 메모를 사용자에게 보여줄 문단으로 만든다.</summary>
+        private static string BuildDiagnosisText(List<string> diagnosis)
+        {
+            return "[진단 정보]\n· " + string.Join("\n· ", diagnosis) +
+                   "\n\n자세한 기록: %AppData%\\FBXtoRVT\\FBXtoRVTLogs";
         }
     }
 }
