@@ -12,6 +12,7 @@ namespace FBXtoRVT.Core
     /// 사용자가 첫 객체 → 둘째 객체를 차례로 고르면, 첫 객체의 열린 커넥터에서
     /// 둘째 객체의 열린 커넥터까지 FLEX PIPE("METAL HOSE_STS304(FLEX)" 타입)를 생성한다.
     /// 지름 / System Type 은 첫 객체(정확히는 사용된 커넥터) 기준으로 맞춘다.
+    /// 첫 객체에 System Type 이 없으면(= Undefined) 막지 않고 Undefined 인 채로 만든다.
     ///
     /// 커넥터 선택 규칙
     ///  - 둘 중 하나라도 열린 커넥터가 없으면 실행하지 않는다.
@@ -22,6 +23,9 @@ namespace FBXtoRVT.Core
     {
         // 사용할 FLEX PIPE 타입 이름
         private const string FlexPipeTypeName = "METAL HOSE_STS304(FLEX)";
+
+        // System Type 을 못 찾았을 때 새로 만들 "미지정" 배관 시스템 타입 이름
+        private const string UndefinedSystemTypeName = "Undefined";
 
         // 이보다 짧으면 배관을 만들지 않는다. (1mm)
         private static readonly double MinLengthFeet = ElementUtils.MmToFeet(1.0);
@@ -65,7 +69,7 @@ namespace FBXtoRVT.Core
                     "두 객체의 커넥터가 너무 가까워서 FLEX PIPE 를 만들 수 없습니다.");
 
             // 첫 객체(시작 커넥터) 기준으로 System Type / FLEX PIPE 타입 / 레벨 결정
-            ElementId systemTypeId = GetSystemTypeId(obj1);
+            ElementId systemTypeId = ResolveSystemTypeId(doc, obj1);
             ElementId flexPipeTypeId = GetFlexPipeTypeId(doc);
             ElementId levelId = ElementUtils.FindNearestLevelId(doc, startConn.Origin);
 
@@ -126,15 +130,79 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
-        /// 객체의 System Type(Id)을 구한다. 없으면 예외.
+        /// 새로 만들 FLEX PIPE 에 쓸 System Type 을 정한다.
+        ///
+        /// 첫 객체가 System Type 을 갖고 있으면 그대로 따라간다.
+        /// 갖고 있지 않으면(= Undefined) 예전에는 예외를 던져서 배관을 아예 만들지 못했는데,
+        /// 지금은 <b>Undefined(미지정) System Type 으로 그냥 만든다.</b>
+        ///
+        /// 찾는 순서
+        ///  1) 첫 객체의 System Type
+        ///  2) 문서에 있는 "분류가 Undefined" 인 배관 시스템 타입
+        ///  3) 이름이 Undefined / 미지정 인 배관 시스템 타입
+        ///  4) 그런 게 없으면 새로 하나 만든다
+        ///  5) 그것마저 안 되면 문서의 아무 배관 시스템 타입 (배관 생성 자체는 되도록)
         /// </summary>
-        private static ElementId GetSystemTypeId(Element e)
+        private static ElementId ResolveSystemTypeId(Document doc, Element e)
         {
+            // 1) 첫 객체가 들고 있는 System Type
             Parameter p = e.get_Parameter(BuiltInParameter.RBS_PIPING_SYSTEM_TYPE_PARAM);
-            if (p == null || p.AsElementId() == ElementId.InvalidElementId)
-                throw new InvalidOperationException("첫 번째 객체에서 System Type 을 확인할 수 없습니다.");
+            if (p != null)
+            {
+                ElementId id = p.AsElementId();
+                if (id != null && id != ElementId.InvalidElementId)
+                    return id;
+            }
 
-            return p.AsElementId();
+            LogUtils.Log("FLEX PIPE: 첫 객체에 System Type 이 없어 Undefined 로 만듭니다.");
+
+            var pipingSystemTypes = new FilteredElementCollector(doc)
+                .OfClass(typeof(PipingSystemType))
+                .Cast<PipingSystemType>()
+                .ToList();
+
+            // 2) 분류가 Undefined 인 것
+            PipingSystemType undefined = pipingSystemTypes.FirstOrDefault(
+                t => t.SystemClassification == MEPSystemClassification.UndefinedSystemClassification);
+
+            // 3) 이름으로 한 번 더 찾아본다 (템플릿에 따라 분류가 다르게 들어간 경우 대비)
+            if (undefined == null)
+            {
+                undefined = pipingSystemTypes.FirstOrDefault(t =>
+                    (t.Name ?? "").IndexOf("Undefined", StringComparison.OrdinalIgnoreCase) >= 0
+                    || (t.Name ?? "").Contains("미지정"));
+            }
+
+            if (undefined != null)
+            {
+                LogUtils.Log($"FLEX PIPE: Undefined System Type 사용. Id={undefined.Id} 이름='{undefined.Name}'");
+                return undefined.Id;
+            }
+
+            // 4) 없으면 새로 만든다
+            try
+            {
+                PipingSystemType created = PipingSystemType.Create(
+                    doc, MEPSystemClassification.UndefinedSystemClassification, UndefinedSystemTypeName);
+
+                LogUtils.Log($"FLEX PIPE: Undefined System Type 을 새로 만들었습니다. Id={created.Id}");
+                return created.Id;
+            }
+            catch (Exception ex)
+            {
+                LogUtils.LogError(ex, "Undefined System Type 생성 실패. 문서의 다른 배관 시스템 타입을 씁니다.");
+            }
+
+            // 5) 마지막 수단: 아무 배관 시스템 타입이라도 써서 배관은 만들어 준다
+            PipingSystemType any = pipingSystemTypes.FirstOrDefault();
+            if (any != null)
+            {
+                LogUtils.Log($"FLEX PIPE: Undefined 를 찾지 못해 '{any.Name}' System Type 으로 만듭니다.");
+                return any.Id;
+            }
+
+            throw new InvalidOperationException(
+                "이 문서에 배관 시스템 타입(Piping System Type)이 하나도 없어 FLEX PIPE 를 만들 수 없습니다.");
         }
 
         /// <summary>
