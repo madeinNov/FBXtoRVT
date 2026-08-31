@@ -37,8 +37,9 @@ namespace FBXtoRVT.Core
         public class ToggleResult
         {
             public bool NowVisible;   // 토글 후 켜짐이면 true
-            public bool UsedCategory; // true: 카테고리 가시성으로 처리, false: 객체 숨기기로 처리
+            public bool UsedCategory; // true: 카테고리 가시성으로 처리, false: 그 외 방법
             public int LinkCount;     // 다룬 좌표조정 모델 수 (카테고리 방식이면 참고값)
+            public string Method;     // 실제로 통한 방법 (로그/확인용)
         }
 
         /// <summary>
@@ -72,6 +73,15 @@ namespace FBXtoRVT.Core
             diagnosis.Add(templateName == null
                 ? "뷰 템플릿: 없음"
                 : $"뷰 템플릿: '{templateName}' ({(lockedByTemplate ? "좌표조정 모델 가시성을 잠그고 있음" : "잠그지 않음")})");
+
+            // ===== 0) 뷰 파라미터 =====
+            //
+            // V/G 대화상자의 "Coordination Models" 탭에는
+            // "Show Coordination Models in this view" 체크박스가 있다.
+            // 이건 카테고리도 객체도 아닌 "뷰 자체의 설정" 이므로, 뷰의 파라미터에서 찾아 뒤집는다.
+            // 카테고리/객체 방법이 Revit 에서 막혀 있으므로 이 방법을 가장 먼저 시도한다.
+            ToggleResult viewParamResult = TryToggleViewParameter(view, linkIds.Count, diagnosis);
+            if (viewParamResult != null) return viewParamResult;
 
             // ===== 1) 카테고리 가시성 =====
             //
@@ -113,6 +123,121 @@ namespace FBXtoRVT.Core
             LogUtils.Log("LINK ON/OFF 실패. " + string.Join(" / ", diagnosis));
 
             throw new InvalidOperationException(help + "\n\n" + BuildDiagnosisText(diagnosis));
+        }
+
+        // ===== 0) 뷰 파라미터 =====
+
+        /// <summary>
+        /// 뷰의 파라미터로 좌표조정 모델 표시를 켜고 끈다. 성공하면 결과, 못 하면 null.
+        ///
+        /// V/G 대화상자 "Coordination Models" 탭의
+        /// "Show Coordination Models in this view" 체크박스에 해당하는 파라미터를 찾아 뒤집는다.
+        /// </summary>
+        private static ToggleResult TryToggleViewParameter(View view, int linkCount, List<string> diagnosis)
+        {
+            // 뷰가 어떤 파라미터를 갖고 있는지는 진단에 중요하므로 전부 남긴다.
+            LogViewParameters(view);
+
+            Parameter target = FindCoordinationModelViewParameter(view);
+
+            if (target == null)
+            {
+                diagnosis.Add("뷰 파라미터 방법: 좌표조정 모델 표시 파라미터를 찾지 못함");
+                return null;
+            }
+
+            string paramName = target.Definition != null ? target.Definition.Name : "(이름없음)";
+
+            if (target.StorageType != StorageType.Integer)
+            {
+                diagnosis.Add($"뷰 파라미터 방법: '{paramName}' 이(가) YES/NO 가 아님 ({target.StorageType})");
+                return null;
+            }
+
+            if (target.IsReadOnly)
+            {
+                diagnosis.Add($"뷰 파라미터 방법: '{paramName}' 이(가) 읽기 전용");
+                return null;
+            }
+
+            try
+            {
+                int current = target.AsInteger();
+                target.Set(current == 0 ? 1 : 0);
+
+                LogUtils.Log($"뷰 파라미터 '{paramName}' 토글 성공. {current} -> {(current == 0 ? 1 : 0)}");
+
+                return new ToggleResult
+                {
+                    NowVisible = (current == 0), // 0(꺼짐)이었으면 이제 켜진 것
+                    UsedCategory = false,
+                    LinkCount = linkCount,
+                    Method = $"뷰 파라미터 '{paramName}'"
+                };
+            }
+            catch (Exception ex)
+            {
+                diagnosis.Add($"뷰 파라미터 방법: '{paramName}' 변경 실패 ({ex.Message})");
+                LogUtils.LogError(ex, $"뷰 파라미터 '{paramName}' 변경 실패.");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 뷰에서 "좌표조정 모델 표시" 에 해당하는 파라미터를 찾는다. 없으면 null.
+        /// 이름으로 먼저 찾고(영문/한글 UI 모두), 없으면 지정된 BuiltInParameter 를 본다.
+        /// </summary>
+        private static Parameter FindCoordinationModelViewParameter(View view)
+        {
+            try
+            {
+                foreach (Parameter p in view.Parameters)
+                {
+                    if (p == null || p.Definition == null) continue;
+                    if (p.StorageType != StorageType.Integer) continue;
+
+                    string name = p.Definition.Name ?? "";
+                    if (name.IndexOf("Coordination", StringComparison.OrdinalIgnoreCase) >= 0
+                        || name.Contains("좌표조정"))
+                    {
+                        return p;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogUtils.LogError(ex, "뷰 파라미터 이름 검색 실패.");
+            }
+
+            try
+            {
+                return view.get_Parameter(BuiltInParameter.VIS_GRAPHICS_COORDINATION_MODEL);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>뷰가 가진 파라미터를 전부 로그에 남긴다. (진단용)</summary>
+        private static void LogViewParameters(View view)
+        {
+            try
+            {
+                LogUtils.Log($"[진단] 뷰 '{view.Name}' 파라미터 목록");
+
+                foreach (Parameter p in view.Parameters)
+                {
+                    if (p == null || p.Definition == null) continue;
+
+                    LogUtils.Log($"[진단]   뷰파라미터 '{p.Definition.Name}' " +
+                        $"타입={p.StorageType} 읽기전용={p.IsReadOnly} 값={SafeParamValue(p)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogUtils.LogError(ex, "뷰 파라미터 나열 실패.");
+            }
         }
 
         // ===== 1) 카테고리 가시성 =====
