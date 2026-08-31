@@ -94,7 +94,9 @@ foreach (Element e in collector)
 | 파일 | 적용 방식 |
 | --- | --- |
 | `Core/SleeveAdjustHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
-| `Core/ScrubberFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
+| `Core/FlangeNutAttachHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 (부품 수집) |
+| `Core/ScrubberFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 (장비 수집) |
+| `Core/EquipmentFlangeNutHelper.cs` | `ElementUtils.CollectFamilyInstancesByCategory` 사용 (장비 수집) |
 | `Core/ElbowConnectHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
 | `Core/HopperFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
 | `Core/OverlapSelectHelper.cs` | `CollectFamilyInstancesInView` 에서 `IsSubComponent` 로 제외 |
@@ -162,11 +164,171 @@ foreach (Element e in collector)
 
 ---
 
+## 규칙 3. 반복문 안에서 객체를 다시 수집하지 않는다
+
+### 내용
+
+`FilteredElementCollector` 는 **실행 시작 때 한 번만** 돌린다.
+"장비마다 / 슬리브마다" 같은 반복문 안에서 다시 돌리면 안 된다.
+
+### 이유
+
+`FilteredElementCollector` 로 뷰 안의 `FamilyInstance` 를 전부 모으고 이름을 비교하는 일은
+모델이 커질수록 급격히 느려진다. 이것을 대상 100개짜리 반복문 안에서 돌리면
+같은 작업을 100번 하게 되어, 실행 시간이 눈에 띄게 길어진다.
+
+### 적용 방법
+
+후보 목록을 반복문 <b>밖에서</b> 한 번 모아 두고, 반복문 안에서는 그 목록만 훑는다.
+처리 도중 값이 바뀌는 것과 안 바뀌는 것을 나눠서 다루면 된다.
+
+| 성질 | 어떻게 다루나 | 예 |
+| --- | --- | --- |
+| 안 바뀜 | 미리 계산해서 보관 | 배관 끝점, 삭제만 되는 플랜지의 중심점 |
+| 바뀜 | 보관한 Id 로 그때그때 다시 조회 | 커넥터 열림/닫힘, 이동한 부품의 위치 |
+
+```csharp
+// 후보는 여기서 한 번만 모은다
+List<PartRef> parts = CollectParts(doc, view, FamilyKeywords.Flange);
+
+foreach (ElementId equipId in equipmentIds)
+{
+    foreach (PartRef part in parts)   // 다시 수집하지 않는다
+    {
+        ...
+    }
+}
+```
+
+객체가 <b>움직이면</b> 보관해 둔 좌표도 그 자리에서 갱신해 준다.
+(`Core/FlangeNutAttachHelper.cs` 의 `PartRef.Center` 가 그렇게 되어 있다)
+
+### 주의할 점
+
+- 삭제될 수 있는 객체는 `HashSet<ElementId>` 로 "이미 지운 것" 을 기록해 건너뛴다.
+- 커넥터가 열려 있는지(`IsConnected`)는 처리 도중 계속 바뀌므로 **절대 보관하지 않는다.**
+  커넥터는 `Core/ConnRef.cs` 로 "객체 Id + 커넥터 Id" 만 기억했다가 쓰기 직전에 다시 조회한다.
+
+---
+
+## 규칙 4. 로깅 정책
+
+### 내용
+
+로그는 `Core/LogUtils.cs` 의 세 가지만 쓴다.
+
+| 함수 | 쓸 곳 | 언제 남나 |
+| --- | --- | --- |
+| `LogUtils.Log` | 기능 시작 / 종료 요약처럼 **실행당 몇 줄**뿐인 내용 | 항상 |
+| `LogUtils.LogDetail` | 객체 하나하나를 따라가는 **상세 진단** | 상세 로그를 켰을 때만 |
+| `LogUtils.LogError` | 예외 / 실패 | 항상 |
+
+### 이유
+
+예전에는 모든 로그가 항상 파일에 쓰였다. 객체마다 한 줄씩 남기는 기능에서는
+디스크 쓰기와 문자열 만들기 때문에 실행이 느려지고, 로그 파일도 금방 읽기 어려워진다.
+그렇다고 상세 로그를 지워 버리면 문제가 생겼을 때 원인을 찾을 수 없다.
+그래서 **평소에는 요약만, 필요할 때만 상세하게** 남기도록 나눴다.
+
+### 적용 방법
+
+반복문 안에서 `LogDetail` 을 부를 때는 **반드시** 호출 자체를 감싼다.
+그렇지 않으면 로그를 꺼 두어도 `$"..."` 문자열을 만드는 비용이 그대로 든다.
+
+```csharp
+if (LogUtils.DetailEnabled)
+    LogUtils.LogDetail($"후보 FLANGE(Id={id}, Family={ElementUtils.GetFamilyName(flange)}) ...");
+```
+
+일괄 처리 기능은 시작과 종료에 요약 한 줄씩을 남긴다.
+
+```csharp
+LogUtils.Log($"===== 타공 슬리브 조정 실행 시작. 슬리브 {n}개 =====");
+...
+LogUtils.Log($"===== 타공 슬리브 조정 실행 종료. 상부연결={...} 실패={...} =====");
+```
+
+`catch` 로 실패를 삼킬 때는 반드시 `LogUtils.LogError` 를 남긴다.
+(결과 요약의 "실패 N건" 이 왜 생겼는지 나중에 확인할 수 있어야 한다)
+
+### 상세 로그 켜는 법
+
+`%AppData%\FBXtoRVT\debug.on` 이라는 **빈 파일**을 만들고 Revit 을 다시 켠다.
+파일을 지우면 다시 꺼진다. 다시 빌드할 필요는 없다.
+로그 파일은 `%AppData%\FBXtoRVT\FBXtoRVTLogs\log_날짜.txt` 이다.
+
+---
+
+## 규칙 5. 뷰 전체를 훑는 명령은 `ViewCommandBase` 를 쓴다
+
+### 내용
+
+"버튼을 누르면 현재 뷰 전체를 훑어서 한 번에 처리하는" 명령은
+`Commands/ViewCommandBase.cs` 를 상속해서 만든다.
+
+### 이유
+
+이런 명령은 (1) 문서/뷰 확인 → (2) Transaction → (3) 결과 대화상자 → (4) 예외 처리 가
+매번 똑같다. 명령마다 복사해 두면 예외 처리 하나를 고칠 때 모든 파일을 다 손봐야 한다.
+
+### 적용 방법
+
+`FeatureTitle` 과 `RunInTransaction` 만 채우면 된다.
+Transaction 은 부모가 열고 닫으므로, 자식은 Core 로직을 부르고 요약 문구만 돌려준다.
+
+```csharp
+[Transaction(TransactionMode.Manual)]
+public class SleeveAdjustCommand : ViewCommandBase
+{
+    protected override string FeatureTitle { get { return "타공 슬리브 조정"; } }
+
+    protected override string RunInTransaction(Document doc, View view)
+    {
+        SleeveAdjustHelper.RunResult r = SleeveAdjustHelper.Run(doc, view);
+        return $"타공 SLEEVE: {r.SleeveCount}개 ...";   // null 을 돌려주면 창을 띄우지 않는다
+    }
+}
+```
+
+- 실행 취소 목록에 다른 이름을 쓰고 싶으면 `TransactionName` 만 추가로 덮어쓴다.
+- `[Transaction(TransactionMode.Manual)]` 특성은 **자식 클래스에도 그대로 붙인다.**
+  (Revit 이 명령 클래스에서 직접 읽기 때문)
+- 사용자가 객체를 먼저 클릭해야 하는 명령(대각 배관 생성기, 직각 배관 연결기,
+  Flex Pipe 생성기, 선택 Section Box, 겹침 객체 선택)은 흐름이 달라서 이 뼈대를 쓰지 않는다.
+
+---
+
+## 공통 코드가 어디 있는지
+
+같은 계산을 파일마다 다시 만들지 않도록, 아래 파일들을 먼저 확인한다.
+
+| 파일 | 들어있는 것 |
+| --- | --- |
+| `Core/ElementUtils.cs` | 객체 수집, 월드 바운딩 박스(`WorldBox`), 커넥터 조회, 파라미터 복사 |
+| `Core/ConnRef.cs` | "객체 Id + 커넥터 Id" 로 커넥터를 기억해 두는 참조 |
+| `Core/Keywords.cs` | 패밀리명 키워드(`FamilyKeywords`) / 파라미터 이름(`ParamNames`) 상수 |
+| `Core/ConnectorHelper.cs` | 한쪽 객체를 움직여 상대 커넥터에 맞춘 뒤 연결 |
+| `Core/PipeGeometryUtils.cs` | 배관 중심선, 평행 판정, 공통수선 계산 |
+| `Core/FlangeNutAttachHelper.cs` | 장비 안의 FLANGE / NUT 을 장비 커넥터에 붙이는 규칙 |
+| `Core/LogUtils.cs` | 로그 (규칙 4) |
+| `Commands/ViewCommandBase.cs` | 뷰 전체를 훑는 명령의 공통 뼈대 (규칙 5) |
+
+키워드 문자열("FLANGE", "ELBOW", "FLANGE 상" ...)은 `Core/Keywords.cs` 에만 적는다.
+파일마다 따로 적어 두면 한쪽만 고쳤을 때 기능별로 대상이 달라진다.
+
+---
+
 ## 새 기능을 만들 때 체크리스트
 
 - [ ] 수집 단계에서 Sub-Component 를 걸렀는가? (규칙 1)
 - [ ] 이동·회전·선택 대상 Id 가 최상위 패밀리 Id 인가? (규칙 1)
 - [ ] 성격에 맞는 패널에 버튼을 추가했는가? 공용 패널 순서(`연결` → `배관` → `뷰/가시성`)는 그대로인가? (규칙 2)
+- [ ] 버튼 툴팁에 적은 숫자(mm 등)가 코드의 상수와 실제로 같은가? (규칙 2)
+- [ ] `FilteredElementCollector` 를 반복문 밖에서 한 번만 돌렸는가? (규칙 3)
+- [ ] 반복문 안의 `LogDetail` 을 `if (LogUtils.DetailEnabled)` 로 감쌌는가? (규칙 4)
+- [ ] `catch` 로 실패를 삼킬 때 `LogUtils.LogError` 를 남겼는가? (규칙 4)
+- [ ] 뷰 전체를 훑는 명령이면 `ViewCommandBase` 를 상속했는가? (규칙 5)
+- [ ] 키워드 문자열을 `Core/Keywords.cs` 에 넣었는가? (파일마다 따로 적지 않았는가)
 - [ ] 로직은 `Core/`, Revit 진입점(문서·뷰 검사, 입력창, Transaction, 결과 요약)은
       `Commands/` 로 나눴는가?
 - [ ] `Transaction` 은 `Commands/` 쪽에서만 열었는가?

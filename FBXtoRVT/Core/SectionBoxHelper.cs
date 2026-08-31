@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 
@@ -27,54 +26,32 @@ namespace FBXtoRVT.Core
         {
             var result = new RunResult();
 
-            // mm → Revit 내부 단위(feet)
-            double tol = UnitUtils.ConvertToInternalUnits(toleranceMm, UnitTypeId.Millimeters);
-
             // 1) 선택 객체들의 월드 좌표 바운딩 박스를 하나로 합침
-            XYZ min = null;
-            XYZ max = null;
+            //    (회전된 박스도 맞도록 계산하는 일은 ElementUtils.GetWorldBox 가 처리한다)
+            ElementUtils.WorldBox merged = null;
 
             foreach (ElementId id in elementIds)
             {
-                Element e = doc.GetElement(id);
-                if (e == null) continue;
-
-                BoundingBoxXYZ box = e.get_BoundingBox(null); // 모델 좌표 기준
+                ElementUtils.WorldBox box = ElementUtils.GetWorldBox(doc.GetElement(id));
                 if (box == null) continue;
 
-                // 박스가 회전(Transform)돼 있어도 맞도록 8개 꼭짓점을 월드 좌표로 변환해 min/max 갱신
-                foreach (XYZ corner in GetCorners(box))
-                {
-                    XYZ p = box.Transform.OfPoint(corner);
-                    if (min == null)
-                    {
-                        min = p;
-                        max = p;
-                    }
-                    else
-                    {
-                        min = new XYZ(Math.Min(min.X, p.X), Math.Min(min.Y, p.Y), Math.Min(min.Z, p.Z));
-                        max = new XYZ(Math.Max(max.X, p.X), Math.Max(max.Y, p.Y), Math.Max(max.Z, p.Z));
-                    }
-                }
-
+                merged = (merged == null) ? box : merged.Union(box);
                 result.UsedElementCount++;
             }
 
             // 계산할 박스가 없으면 종료
-            if (min == null)
+            if (merged == null)
                 return result;
 
             // 2) tolerance 만큼 모든 방향으로 확장
-            XYZ expandedMin = new XYZ(min.X - tol, min.Y - tol, min.Z - tol);
-            XYZ expandedMax = new XYZ(max.X + tol, max.Y + tol, max.Z + tol);
+            ElementUtils.WorldBox expanded = merged.ExpandAll(ElementUtils.MmToFeet(toleranceMm));
 
             // 3) Section Box 로 적용 (월드 좌표 기준, Transform 은 단위행렬)
             BoundingBoxXYZ sectionBox = new BoundingBoxXYZ
             {
                 Transform = Transform.Identity,
-                Min = expandedMin,
-                Max = expandedMax
+                Min = expanded.Min,
+                Max = expanded.Max
             };
 
             view3D.SetSectionBox(sectionBox);   // 이 호출로 Section Box 가 켜짐
@@ -82,24 +59,6 @@ namespace FBXtoRVT.Core
 
             result.Applied = true;
             return result;
-        }
-
-        /// <summary>
-        /// 바운딩 박스의 8개 꼭짓점(로컬 좌표)을 반환.
-        /// </summary>
-        private static IEnumerable<XYZ> GetCorners(BoundingBoxXYZ box)
-        {
-            XYZ mn = box.Min;
-            XYZ mx = box.Max;
-
-            yield return new XYZ(mn.X, mn.Y, mn.Z);
-            yield return new XYZ(mx.X, mn.Y, mn.Z);
-            yield return new XYZ(mn.X, mx.Y, mn.Z);
-            yield return new XYZ(mn.X, mn.Y, mx.Z);
-            yield return new XYZ(mx.X, mx.Y, mn.Z);
-            yield return new XYZ(mx.X, mn.Y, mx.Z);
-            yield return new XYZ(mn.X, mx.Y, mx.Z);
-            yield return new XYZ(mx.X, mx.Y, mx.Z);
         }
     }
 }

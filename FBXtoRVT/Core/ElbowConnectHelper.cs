@@ -26,10 +26,6 @@ namespace FBXtoRVT.Core
     /// </summary>
     public static class ElbowConnectHelper
     {
-        // 대상 패밀리명 키워드
-        private const string ElbowFamilyKeyword = "ELBOW";
-        private const string FlangeFamilyKeyword = "FLANGE";
-
         // 탐색 박스 한 변의 길이(mm). 커넥터 원점을 중심으로 ±30mm 범위가 된다.
         private const double SearchBoxSizeMm = 60.0;
 
@@ -45,23 +41,6 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
-        /// 커넥터를 "객체 Id + 커넥터 Id" 로 기억해 두는 참조.
-        /// 이동/연결 뒤에는 기존 Connector 객체가 낡을 수 있으므로, 쓰기 직전에 다시 조회한다.
-        /// </summary>
-        private class ConnRef
-        {
-            public ElementId OwnerId;
-            public int ConnectorId;
-            public XYZ Origin;
-
-            /// <summary>중복 사용 방지를 위한 키</summary>
-            public string Key
-            {
-                get { return OwnerId.Value + ":" + ConnectorId; }
-            }
-        }
-
-        /// <summary>
         /// 메인 실행. (외부에서 Transaction 을 열고 호출해야 함)
         /// </summary>
         public static RunResult Run(Document doc, View view)
@@ -72,7 +51,7 @@ namespace FBXtoRVT.Core
 
             // 1) 처리 대상 목록을 먼저 확정한다. (처리 도중 객체가 이동하므로 Id 로 보관)
             var elbowIds = new List<ElementId>();
-            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, ElbowFamilyKeyword))
+            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, FamilyKeywords.Elbow))
             {
                 if (ElementUtils.GetOpenEndConnectors(fi).Count == 0) continue;
                 elbowIds.Add(fi.Id);
@@ -80,13 +59,16 @@ namespace FBXtoRVT.Core
             result.ElbowCount = elbowIds.Count;
 
             var flangeIds = new List<ElementId>();
-            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, FlangeFamilyKeyword))
+            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, FamilyKeywords.Flange))
             {
                 flangeIds.Add(fi.Id);
             }
 
             // 배관은 이 기능에서 움직이지 않으므로, 열린 커넥터 좌표를 한 번만 모아 둔다.
             List<ConnRef> pipeConns = CollectOpenPipeConnectors(doc, view);
+
+            LogUtils.Log($"===== ELBOW&배관/플랜지 실행 시작. 엘보 {result.ElbowCount}개, " +
+                $"FLANGE 후보 {flangeIds.Count}개, 열린 배관 커넥터 {pipeConns.Count}개 =====");
 
             // 이미 쓴 플랜지 / 배관 커넥터는 다시 쓰지 않도록 기록
             var usedFlangeIds = new HashSet<ElementId>();
@@ -112,6 +94,9 @@ namespace FBXtoRVT.Core
                 }
             }
 
+            LogUtils.Log($"===== ELBOW&배관/플랜지 실행 종료. 붙인 FLANGE={result.FlangeConnectedCount} " +
+                $"배관연결={result.PipeConnectedCount} 실패={result.FailedCount} =====");
+
             return result;
         }
 
@@ -125,7 +110,7 @@ namespace FBXtoRVT.Core
             Connector elbowConn = ElementUtils.ResolveConnector(doc, elbowId, elbowConnId);
             if (elbowConn == null || elbowConn.IsConnected) return; // 그 사이 닫혔으면 대상 아님
 
-            // 커넥터 원점을 중심으로 하는 20mm 탐색 박스
+            // 커넥터 원점을 중심으로 하는 60mm 탐색 박스
             ElementUtils.WorldBox searchBox = ElementUtils.WorldBox.FromCenter(elbowConn.Origin, boxSize);
             XYZ elbowConnOrigin = elbowConn.Origin;
 
@@ -165,7 +150,7 @@ namespace FBXtoRVT.Core
             if (elbowConn == null || elbowConn.IsConnected) return -1;
 
             // 플랜지의 열린 커넥터 중 엘보 커넥터에 가장 가까운 것을 사용
-            Connector flangeConn = FindNearestOpenConnector(doc.GetElement(flangeId), elbowConn.Origin);
+            Connector flangeConn = ElementUtils.FindNearestOpenEndConnector(doc.GetElement(flangeId), elbowConn.Origin);
             if (flangeConn == null) return -1; // 열린 커넥터가 없으면 대상 아님
 
             int flangeConnId = flangeConn.Id;
@@ -179,8 +164,9 @@ namespace FBXtoRVT.Core
                 result.FlangeConnectedCount++;
                 return flangeConnId;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogUtils.LogError(ex, $"FLANGE(Id={flangeId}) 를 엘보(Id={elbowId}) 에 붙이지 못함.");
                 result.FailedCount++;
                 return -1;
             }
@@ -208,7 +194,7 @@ namespace FBXtoRVT.Core
 
             if (opposite == null) return; // 반대쪽이 닫혀 있으면 아무것도 하지 않음
 
-            Connector target = ElementUtils.ResolveConnector(doc, pipeConn.OwnerId, pipeConn.ConnectorId);
+            Connector target = pipeConn.Resolve(doc);
             if (target == null || target.IsConnected) return;
 
             try
@@ -217,8 +203,9 @@ namespace FBXtoRVT.Core
                 usedPipeConnKeys.Add(pipeConn.Key);
                 result.PipeConnectedCount++;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogUtils.LogError(ex, $"FLANGE(Id={flangeId}) 반대쪽 커넥터를 배관({pipeConn.Key}) 에 연결하지 못함.");
                 result.FailedCount++;
             }
         }
@@ -230,7 +217,7 @@ namespace FBXtoRVT.Core
             ConnRef pipeConn, HashSet<string> usedPipeConnKeys, RunResult result)
         {
             Connector elbowConn = ElementUtils.ResolveConnector(doc, elbowId, elbowConnId);
-            Connector target = ElementUtils.ResolveConnector(doc, pipeConn.OwnerId, pipeConn.ConnectorId);
+            Connector target = pipeConn.Resolve(doc);
 
             if (elbowConn == null || elbowConn.IsConnected) return;
             if (target == null || target.IsConnected) return;
@@ -244,8 +231,9 @@ namespace FBXtoRVT.Core
                 usedPipeConnKeys.Add(pipeConn.Key);
                 result.PipeConnectedCount++;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogUtils.LogError(ex, $"엘보(Id={elbowId}) 를 배관({pipeConn.Key}) 에 연결하지 못함.");
                 result.FailedCount++;
             }
         }
@@ -329,27 +317,6 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
-        /// 객체의 열린 End 커넥터 중 기준점에 가장 가까운 것을 반환. 없으면 null.
-        /// </summary>
-        private static Connector FindNearestOpenConnector(Element e, XYZ target)
-        {
-            Connector best = null;
-            double bestDist = double.MaxValue;
-
-            foreach (Connector c in ElementUtils.GetOpenEndConnectors(e))
-            {
-                double dist = c.Origin.DistanceTo(target);
-                if (dist < bestDist)
-                {
-                    bestDist = dist;
-                    best = c;
-                }
-            }
-
-            return best;
-        }
-
-        /// <summary>
         /// 현재 뷰의 배관에서 열린 End 커넥터(= 배관 끝점)를 모두 모은다.
         /// </summary>
         private static List<ConnRef> CollectOpenPipeConnectors(Document doc, View view)
@@ -367,12 +334,7 @@ namespace FBXtoRVT.Core
 
                 foreach (Connector c in ElementUtils.GetOpenEndConnectors(pipe))
                 {
-                    list.Add(new ConnRef
-                    {
-                        OwnerId = pipe.Id,
-                        ConnectorId = c.Id,
-                        Origin = c.Origin
-                    });
+                    list.Add(ConnRef.From(pipe.Id, c));
                 }
             }
 

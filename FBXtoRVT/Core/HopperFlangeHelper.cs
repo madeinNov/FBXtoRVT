@@ -33,22 +33,6 @@ namespace FBXtoRVT.Core
     /// </summary>
     public static class HopperFlangeHelper
     {
-        // 대상 패밀리명 키워드
-        private const string HopperFamilyKeyword = "HOPPER";
-        private const string FlangeFamilyKeyword = "FLANGE";
-
-        // 플랜지 종류 구분용 패밀리명 키워드
-        private const string NwFlangeKeyword = "NW";
-        private const string DcFlangeKeyword = "DC";
-        private const string BlindFlangeKeyword = "BLIND";
-
-        // 해제 대상 YES/NO 인스턴스 파라미터 이름
-        private const string ParamFlangeLower = "FLANGE 하";
-        private const string ParamFlangeUpper = "FLANGE 상";
-
-        // 플랜지 -> HOPPER 로 값을 옮길 파라미터 이름(구경)
-        private const string ParamNd1 = "ND1";
-
         // HOPPER 바운딩 박스 확장량(mm). 모든 방향(X/Y/Z 앞뒤)으로 이만큼 키운다.
         private const double HopperBoxExpandMm = 50.0;
 
@@ -85,14 +69,14 @@ namespace FBXtoRVT.Core
 
             // 처리 도중 HOPPER 가 이동하므로, 대상은 Id 목록으로 먼저 확정해 둔다.
             var hopperIds = new List<ElementId>();
-            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, HopperFamilyKeyword))
+            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, FamilyKeywords.Hopper))
             {
                 hopperIds.Add(fi.Id);
             }
             result.HopperCount = hopperIds.Count;
 
             var flangeIds = new List<ElementId>();
-            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, FlangeFamilyKeyword))
+            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstances(doc, view, FamilyKeywords.Flange))
             {
                 flangeIds.Add(fi.Id);
             }
@@ -124,7 +108,7 @@ namespace FBXtoRVT.Core
             ElementUtils.WorldBox hopperBox = ElementUtils.GetWorldBox(hopper);
             if (hopperBox == null)
             {
-                LogUtils.Log($"HOPPER(Id={hopperId}) 바운딩박스 없음, 건너뜀.");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) 바운딩박스 없음, 건너뜀.");
                 return;
             }
 
@@ -132,7 +116,10 @@ namespace FBXtoRVT.Core
             hopperBox = hopperBox.ExpandAll(ElementUtils.MmToFeet(HopperBoxExpandMm));
 
             XYZ hopperCenter = hopperBox.Center;
-            LogUtils.Log($"HOPPER(Id={hopperId}) box(+{HopperBoxExpandMm}mm) Min={FormatXyz(hopperBox.Min)} Max={FormatXyz(hopperBox.Max)}");
+
+            if (LogUtils.DetailEnabled)
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) box(+{HopperBoxExpandMm}mm) " +
+                    $"Min={LogUtils.FormatXyz(hopperBox.Min)} Max={LogUtils.FormatXyz(hopperBox.Max)}");
 
             // 1) 박스 안에 "중심점 또는 커넥터점" 이 들어가는 플랜지를 센다. 딱 1개일 때만 대상.
             ElementId targetFlangeId = null;
@@ -151,7 +138,12 @@ namespace FBXtoRVT.Core
                 bool connInside = IsAnyConnectorInside(flange, hopperBox);
 
                 bool inside = centerInside || connInside;
-                LogUtils.Log($"  후보 FLANGE(Id={id}, Family={GetFamilyName(flange)}) center={FormatXyz(center)} 중심점inside={centerInside} 커넥터점inside={connInside}");
+
+                // 반복문 안이라 호출 자체를 if 로 막는다. (문자열 만드는 비용까지 아끼기 위해)
+                if (LogUtils.DetailEnabled)
+                    LogUtils.LogDetail($"  후보 FLANGE(Id={id}, Family={ElementUtils.GetFamilyName(flange)}) " +
+                        $"center={LogUtils.FormatXyz(center)} 중심점inside={centerInside} 커넥터점inside={connInside}");
+
                 if (!inside) continue;
 
                 insideCount++;
@@ -160,7 +152,7 @@ namespace FBXtoRVT.Core
 
             if (insideCount != 1)
             {
-                LogUtils.Log($"HOPPER(Id={hopperId}) 박스 안 FLANGE 개수={insideCount} (1개가 아님) -> 건너뜀.");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) 박스 안 FLANGE 개수={insideCount} (1개가 아님) -> 건너뜀.");
                 result.SkippedCount++;
                 return;
             }
@@ -173,14 +165,19 @@ namespace FBXtoRVT.Core
             // 2) 플랜지 커넥터 중 HOPPER 에 가까운 쪽을 고르고, Primary 인지 조사
             Element targetFlange = doc.GetElement(targetFlangeId);
 
-            List<Connector> targetEndConns = ElementUtils.GetEndConnectors(targetFlange);
-            LogUtils.Log($"HOPPER(Id={hopperId}) 대상 FLANGE(Id={targetFlangeId}, Family={GetFamilyName(targetFlange)}) End 커넥터 {targetEndConns.Count}개: " +
-                string.Join(", ", targetEndConns.ConvertAll(c => $"[Id={c.Id} Origin={FormatXyz(c.Origin)} Primary={ElementUtils.IsPrimaryConnector(c)} Connected={c.IsConnected}]")));
+            if (LogUtils.DetailEnabled)
+            {
+                List<Connector> targetEndConns = ElementUtils.GetEndConnectors(targetFlange);
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) 대상 FLANGE(Id={targetFlangeId}, Family={ElementUtils.GetFamilyName(targetFlange)}) " +
+                    $"End 커넥터 {targetEndConns.Count}개: " +
+                    string.Join(", ", targetEndConns.ConvertAll(c =>
+                        $"[Id={c.Id} Origin={LogUtils.FormatXyz(c.Origin)} Primary={ElementUtils.IsPrimaryConnector(c)} Connected={c.IsConnected}]")));
+            }
 
-            Connector nearConn = FindNearestEndConnector(targetFlange, hopperCenter);
+            Connector nearConn = ElementUtils.FindNearestEndConnector(targetFlange, hopperCenter);
             if (nearConn == null)
             {
-                LogUtils.Log($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId})에서 End 커넥터를 찾지 못함 -> 실패.");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId})에서 End 커넥터를 찾지 못함 -> 실패.");
                 result.FailedCount++;
                 return;
             }
@@ -191,7 +188,10 @@ namespace FBXtoRVT.Core
             // 3) 플랜지 종류 + Primary 여부에 따라 파라미터 해제
             FlangeKind kind = GetFlangeKind(targetFlange);
             string paramToUncheck = GetParamToUncheck(kind, isPrimary);
-            LogUtils.Log($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) kind={kind} nearConnId={flangeConnId} isPrimary={isPrimary} paramToUncheck={paramToUncheck ?? "(없음)"}");
+
+            if (LogUtils.DetailEnabled)
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) kind={kind} " +
+                    $"nearConnId={flangeConnId} isPrimary={isPrimary} paramToUncheck={paramToUncheck ?? "(없음)"}");
 
             if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(targetFlange, paramToUncheck))
             {
@@ -202,11 +202,11 @@ namespace FBXtoRVT.Core
             // 4) 파라미터 변경 뒤 커넥터를 다시 조회 (Id 가 사라졌으면 다시 가까운 것으로 대체)
             Connector flangeConn = ElementUtils.ResolveConnector(doc, targetFlangeId, flangeConnId);
             if (flangeConn == null)
-                flangeConn = FindNearestEndConnector(doc.GetElement(targetFlangeId), hopperCenter);
+                flangeConn = ElementUtils.FindNearestEndConnector(doc.GetElement(targetFlangeId), hopperCenter);
 
             if (flangeConn == null || flangeConn.IsConnected)
             {
-                LogUtils.Log($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) 파라미터 변경 후 커넥터 재조회 실패. flangeConn={(flangeConn == null ? "null" : $"Id={flangeConn.Id} Connected={flangeConn.IsConnected}")}");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) 파라미터 변경 후 커넥터 재조회 실패. flangeConn={(flangeConn == null ? "null" : $"Id={flangeConn.Id} Connected={flangeConn.IsConnected}")}");
                 result.FailedCount++;
                 return;
             }
@@ -215,9 +215,14 @@ namespace FBXtoRVT.Core
             Connector hopperConn = FindNonPrimaryOpenConnector(doc.GetElement(hopperId), flangeConn.Origin);
             if (hopperConn == null)
             {
-                List<Connector> hopperOpenConns = ElementUtils.GetOpenEndConnectors(doc.GetElement(hopperId));
-                LogUtils.Log($"HOPPER(Id={hopperId}) Non-Primary 열린 커넥터 없음. 열린 커넥터 {hopperOpenConns.Count}개: " +
-                    string.Join(", ", hopperOpenConns.ConvertAll(c => $"[Id={c.Id} Origin={FormatXyz(c.Origin)} Primary={ElementUtils.IsPrimaryConnector(c)}]")));
+                if (LogUtils.DetailEnabled)
+                {
+                    List<Connector> hopperOpenConns = ElementUtils.GetOpenEndConnectors(doc.GetElement(hopperId));
+                    LogUtils.LogDetail($"HOPPER(Id={hopperId}) Non-Primary 열린 커넥터 없음. 열린 커넥터 {hopperOpenConns.Count}개: " +
+                        string.Join(", ", hopperOpenConns.ConvertAll(c =>
+                            $"[Id={c.Id} Origin={LogUtils.FormatXyz(c.Origin)} Primary={ElementUtils.IsPrimaryConnector(c)}]")));
+                }
+
                 result.FailedCount++;
                 return;
             }
@@ -230,7 +235,7 @@ namespace FBXtoRVT.Core
 
                 usedFlangeIds.Add(targetFlangeId);
                 result.ConnectedCount++;
-                LogUtils.Log($"HOPPER(Id={hopperId}) <-> FLANGE(Id={targetFlangeId}) 연결 성공.");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) <-> FLANGE(Id={targetFlangeId}) 연결 성공.");
             }
             catch (Exception ex)
             {
@@ -272,7 +277,7 @@ namespace FBXtoRVT.Core
             List<Connector> hopperConns = ElementUtils.GetEndConnectors(hopper);
             if (hopperConns.Count == 0)
             {
-                LogUtils.Log($"HOPPER(Id={hopperId}) 커넥터가 없어 ND1 복사를 건너뜀.");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) 커넥터가 없어 ND1 복사를 건너뜀.");
                 return;
             }
 
@@ -281,34 +286,25 @@ namespace FBXtoRVT.Core
             {
                 if (ElementUtils.GetConnectorSizeKey(c) == firstSizeKey) continue;
 
-                LogUtils.Log($"HOPPER(Id={hopperId}) 커넥터 ND 가 서로 다름 -> ND1 복사 안 함. " +
-                    string.Join(", ", hopperConns.ConvertAll(x => $"[Id={x.Id} size={ElementUtils.GetConnectorSizeKey(x)}]")));
+                if (LogUtils.DetailEnabled)
+                    LogUtils.LogDetail($"HOPPER(Id={hopperId}) 커넥터 ND 가 서로 다름 -> ND1 복사 안 함. " +
+                        string.Join(", ", hopperConns.ConvertAll(x => $"[Id={x.Id} size={ElementUtils.GetConnectorSizeKey(x)}]")));
+
                 result.Nd1SkippedMixedCount++;
                 return;
             }
 
             // 모든 커넥터 ND 가 같으므로 복사
-            if (ElementUtils.CopyParamValue(flange, hopper, ParamNd1))
+            if (ElementUtils.CopyParamValue(flange, hopper, ParamNames.Nd1))
             {
                 result.Nd1CopiedCount++;
                 doc.Regenerate(); // ND1 이 바뀌면 형상/커넥터가 바뀐다
-                LogUtils.Log($"HOPPER(Id={hopperId}) <- FLANGE(Id={flangeId}) 의 {ParamNd1} 값 복사 완료.");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) <- FLANGE(Id={flangeId}) 의 {ParamNames.Nd1} 값 복사 완료.");
             }
             else
             {
-                LogUtils.Log($"HOPPER(Id={hopperId}) {ParamNd1} 복사 안 됨(파라미터 없음 / 읽기전용 / 이미 같은 값).");
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) {ParamNames.Nd1} 복사 안 됨(파라미터 없음 / 읽기전용 / 이미 같은 값).");
             }
-        }
-
-        private static string GetFamilyName(Element e)
-        {
-            var fi = e as FamilyInstance;
-            return fi?.Symbol?.Family?.Name ?? "(알수없음)";
-        }
-
-        private static string FormatXyz(XYZ p)
-        {
-            return p == null ? "null" : $"({p.X:F3}, {p.Y:F3}, {p.Z:F3})";
         }
 
         /// <summary>
@@ -317,9 +313,9 @@ namespace FBXtoRVT.Core
         /// </summary>
         private static FlangeKind GetFlangeKind(Element flange)
         {
-            if (ElementUtils.FamilyNameContains(flange, BlindFlangeKeyword)) return FlangeKind.Blind;
-            if (ElementUtils.FamilyNameContains(flange, NwFlangeKeyword)) return FlangeKind.Nw;
-            if (ElementUtils.FamilyNameContains(flange, DcFlangeKeyword)) return FlangeKind.Dc;
+            if (ElementUtils.FamilyNameContains(flange, FamilyKeywords.BlindFlange)) return FlangeKind.Blind;
+            if (ElementUtils.FamilyNameContains(flange, FamilyKeywords.NwFlange)) return FlangeKind.Nw;
+            if (ElementUtils.FamilyNameContains(flange, FamilyKeywords.DcFlangeKind)) return FlangeKind.Dc;
 
             return FlangeKind.Unknown;
         }
@@ -331,21 +327,12 @@ namespace FBXtoRVT.Core
         private static string GetParamToUncheck(FlangeKind kind, bool isPrimary)
         {
             if (kind == FlangeKind.Nw)
-                return isPrimary ? ParamFlangeLower : ParamFlangeUpper;
+                return isPrimary ? ParamNames.FlangeLower : ParamNames.FlangeUpper;
 
             if (kind == FlangeKind.Dc)
-                return isPrimary ? ParamFlangeUpper : ParamFlangeLower;
+                return isPrimary ? ParamNames.FlangeUpper : ParamNames.FlangeLower;
 
             return null;
-        }
-
-        /// <summary>
-        /// 객체의 End 커넥터 중 기준점에 가장 가까운 것을 반환. 없으면 null.
-        /// (공통 유틸에 같은 계산이 있으므로 그대로 쓴다)
-        /// </summary>
-        private static Connector FindNearestEndConnector(Element e, XYZ target)
-        {
-            return ElementUtils.FindNearestEndConnector(e, target);
         }
 
         /// <summary>

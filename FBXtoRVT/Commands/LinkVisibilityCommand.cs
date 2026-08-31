@@ -1,7 +1,5 @@
-using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
 using FBXtoRVT.Core;
 
 namespace FBXtoRVT.Commands
@@ -11,50 +9,22 @@ namespace FBXtoRVT.Commands
     /// 현재 뷰에서 좌표조정 모델(Coordination Model, Navisworks .nwc/.nwd 링크)의
     /// 가시성을 켜짐/꺼짐 토글한다. RVT 링크는 건드리지 않는다.
     /// 단축키로 반복 실행하는 용도이므로 대화상자 없이 조용히 토글만 한다.
+    /// (문서/뷰 확인, Transaction, 예외 처리는 <see cref="ViewCommandBase"/> 가 담당한다)
     /// </summary>
     [Transaction(TransactionMode.Manual)]
-    public class LinkVisibilityCommand : IExternalCommand
+    public class LinkVisibilityCommand : ViewCommandBase
     {
-        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        protected override string FeatureTitle
         {
-            UIDocument uiDoc = commandData.Application.ActiveUIDocument;
+            get { return "LINK ON/OFF"; }
+        }
 
-            // 1) 열린 문서 확인
-            if (uiDoc == null || uiDoc.Document == null)
-            {
-                message = "열린 문서가 없습니다.";
-                return Result.Failed;
-            }
+        protected override string RunInTransaction(Document doc, View view)
+        {
+            LinkVisibilityHelper.ToggleLinkVisibility(doc, view);
 
-            Document doc = uiDoc.Document;
-            View activeView = doc.ActiveView;
-            if (activeView == null)
-            {
-                message = "활성 뷰가 없습니다.";
-                return Result.Failed;
-            }
-
-            try
-            {
-                using (Transaction tx = new Transaction(doc, "LINK ON/OFF"))
-                {
-                    tx.Start();
-                    LinkVisibilityHelper.ToggleLinkVisibility(doc, activeView);
-                    tx.Commit();
-                }
-
-                return Result.Succeeded;
-            }
-            catch (InvalidOperationException ex)
-            {
-                TaskDialog.Show("LINK ON/OFF", ex.Message);
-                return Result.Cancelled;
-            }
-            catch (Exception ex)
-            {
-                message = ex.Message;
-                return Result.Failed;
-            }
+            // null 을 돌려주면 결과 대화상자를 띄우지 않는다. (조용히 토글만 하는 기능)
+            return null;
         }
     }
 }

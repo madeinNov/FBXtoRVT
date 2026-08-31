@@ -77,6 +77,20 @@ namespace FBXtoRVT.Core
             }
 
             /// <summary>
+            /// 두 박스를 모두 감싸는 새 박스를 반환. (상대가 null 이면 자기 자신)
+            /// </summary>
+            public WorldBox Union(WorldBox other)
+            {
+                if (other == null) return this;
+
+                return new WorldBox
+                {
+                    Min = new XYZ(Math.Min(Min.X, other.Min.X), Math.Min(Min.Y, other.Min.Y), Math.Min(Min.Z, other.Min.Z)),
+                    Max = new XYZ(Math.Max(Max.X, other.Max.X), Math.Max(Max.Y, other.Max.Y), Math.Max(Max.Z, other.Max.Z))
+                };
+            }
+
+            /// <summary>
             /// 한 점을 중심으로 하는 정육면체 박스를 만든다.
             /// sizeFeet 는 한 변의 전체 길이(= 중심에서 각 방향으로 절반씩).
             /// </summary>
@@ -130,6 +144,16 @@ namespace FBXtoRVT.Core
         {
             var fi = e as FamilyInstance;
             return fi != null && fi.SuperComponent != null;
+        }
+
+        /// <summary>
+        /// 객체의 패밀리명. 패밀리 인스턴스가 아니거나 이름을 못 읽으면 "(알수없음)".
+        /// (주로 로그에 무슨 객체였는지 남길 때 쓴다)
+        /// </summary>
+        public static string GetFamilyName(Element e)
+        {
+            var fi = e as FamilyInstance;
+            return fi?.Symbol?.Family?.Name ?? "(알수없음)";
         }
 
         /// <summary>
@@ -347,6 +371,27 @@ namespace FBXtoRVT.Core
             double bestDist = double.MaxValue;
 
             foreach (Connector c in GetEndConnectors(e))
+            {
+                double dist = c.Origin.DistanceTo(target);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = c;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// 객체의 <b>열린</b> End 커넥터 중 기준점에 가장 가까운 것을 반환. 없으면 null.
+        /// </summary>
+        public static Connector FindNearestOpenEndConnector(Element e, XYZ target)
+        {
+            Connector best = null;
+            double bestDist = double.MaxValue;
+
+            foreach (Connector c in GetOpenEndConnectors(e))
             {
                 double dist = c.Origin.DistanceTo(target);
                 if (dist < bestDist)

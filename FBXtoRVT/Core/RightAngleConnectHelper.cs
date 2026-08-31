@@ -108,7 +108,7 @@ namespace FBXtoRVT.Core
                     "나란히 떨어져 있는 두 배관을 고르세요.");
 
             LogUtils.Log($"===== 직각 배관 연결기 시작. 첫배관 Id={firstPipe.Id} 둘째배관 Id={secondPipe.Id} " +
-                $"P1={FormatXyz(p1)} P2={FormatXyz(p2)} 길이={result.PipeLength:F4}ft =====");
+                $"P1={LogUtils.FormatXyz(p1)} P2={LogUtils.FormatXyz(p2)} 길이={result.PipeLength:F4}ft =====");
 
             ElementId firstId = firstPipe.Id;
             ElementId secondId = secondPipe.Id;
@@ -179,12 +179,12 @@ namespace FBXtoRVT.Core
                 if (owner is FamilyInstance)
                 {
                     if (!toDelete.Contains(owner.Id)) toDelete.Add(owner.Id);
-                    LogUtils.Log($"  배관(Id={pipeId}) 커넥터에 붙어 있던 부품(Id={owner.Id}) 제거 예정.");
+                    LogUtils.LogDetail($"  배관(Id={pipeId}) 커넥터에 붙어 있던 부품(Id={owner.Id}) 제거 예정.");
                 }
                 else
                 {
                     toDisconnect.Add(other);
-                    LogUtils.Log($"  배관(Id={pipeId}) 커넥터에 이어져 있던 객체(Id={owner.Id})는 연결만 끊음.");
+                    LogUtils.LogDetail($"  배관(Id={pipeId}) 커넥터에 이어져 있던 객체(Id={owner.Id})는 연결만 끊음.");
                 }
             }
 
@@ -241,7 +241,7 @@ namespace FBXtoRVT.Core
                 ? Line.CreateBound(targetPoint, fixedEnd)
                 : Line.CreateBound(fixedEnd, targetPoint);
 
-            LogUtils.Log($"  {pipeLabel}(Id={pipeId}) 끝점을 {FormatXyz(targetPoint)} 로 맞춤.");
+            LogUtils.LogDetail($"  {pipeLabel}(Id={pipeId}) 끝점을 {LogUtils.FormatXyz(targetPoint)} 로 맞춤.");
         }
 
         // ===== 6) 직각 배관 생성 =====
@@ -282,7 +282,7 @@ namespace FBXtoRVT.Core
                 diaParam.Set(baseDiameter);
             }
 
-            LogUtils.Log($"  직각 배관 생성 Id={newPipe.Id} {FormatXyz(from)} -> {FormatXyz(to)}");
+            LogUtils.LogDetail($"  직각 배관 생성 Id={newPipe.Id} {LogUtils.FormatXyz(from)} -> {LogUtils.FormatXyz(to)}");
             return newPipe;
         }
 
@@ -316,7 +316,7 @@ namespace FBXtoRVT.Core
 
             if (connA.IsConnectedTo(connB))
             {
-                LogUtils.Log($"  이미 연결돼 있어 엘보를 넣지 않음. A={ownerAId} B={ownerBId}");
+                LogUtils.LogDetail($"  이미 연결돼 있어 엘보를 넣지 않음. A={ownerAId} B={ownerBId}");
                 return;
             }
 
@@ -324,18 +324,13 @@ namespace FBXtoRVT.Core
             {
                 doc.Create.NewElbowFitting(connA, connB);
                 result.ElbowCount++;
-                LogUtils.Log($"  엘보 삽입 성공. A={ownerAId} B={ownerBId}");
+                LogUtils.LogDetail($"  엘보 삽입 성공. A={ownerAId} B={ownerBId}");
             }
             catch (Exception ex)
             {
                 LogUtils.LogError(ex, $"엘보 삽입 실패. A={ownerAId} B={ownerBId}");
                 result.ElbowFailedCount++;
             }
-        }
-
-        private static string FormatXyz(XYZ p)
-        {
-            return p == null ? "null" : $"({p.X:F3}, {p.Y:F3}, {p.Z:F3})";
         }
     }
 }
