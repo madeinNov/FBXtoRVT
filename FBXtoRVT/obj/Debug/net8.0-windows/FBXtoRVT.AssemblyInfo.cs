@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("FBXtoRVT")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ef8c5a0e26bb65594ac6ffab55bad673a8b463eb")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+2dc7cf30cab48c0f53200089ba3d4d68816a0d21")]
 [assembly: System.Reflection.AssemblyProductAttribute("FBXtoRVT")]
 [assembly: System.Reflection.AssemblyTitleAttribute("FBXtoRVT")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

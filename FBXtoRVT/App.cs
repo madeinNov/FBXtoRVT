@@ -10,11 +10,12 @@ namespace FBXtoRVT
     /// 애드인 시작 시 리본에 "FBXtoRVT" 탭과 기능 버튼을 생성하는 진입점.
     ///
     /// 패널 구성 (왼쪽 → 오른쪽)
-    ///   1.포어라인 : 포어라인 작업용 기능
-    ///   2.SCR      : SCR 작업용 기능
-    ///   공용       : 공정과 상관없이 쓰는 기능
-    ///   기타       : 보조(뷰 조작) 기능
-    ///   응원       : 응원 버튼
+    ///   1.포어라인     : 포어라인 작업용 기능
+    ///   2.SCR          : SCR 작업용 기능
+    ///   공용(연결)     : 부품을 장비/배관의 커넥터에 붙이는 기능
+    ///   공용(배관)     : 배관을 새로 만드는 기능
+    ///   공용(뷰/가시성): 화면에 무엇을 보여줄지 다루는 기능
+    ///   응원           : 응원 버튼
     /// </summary>
     public class App : IExternalApplication
     {
@@ -40,8 +41,9 @@ namespace FBXtoRVT
             //    패널 안에서는 AddButton 을 호출한 순서 = 버튼이 보이는 순서.
             CreatePoreLinePanel(application, assemblyPath);
             CreateScrPanel(application, assemblyPath);
-            CreateCommonPanel(application, assemblyPath);
-            CreateEtcPanel(application, assemblyPath);
+            CreateCommonConnectPanel(application, assemblyPath);
+            CreateCommonPipePanel(application, assemblyPath);
+            CreateCommonViewPanel(application, assemblyPath);
             CreateCheerPanel(application, assemblyPath);
 
             return Result.Succeeded;
@@ -117,32 +119,11 @@ namespace FBXtoRVT
         }
 
         /// <summary>
-        /// "공용" 패널: 공정과 상관없이 쓰는 기능.
+        /// "공용(연결)" 패널: 부품을 장비/배관의 커넥터에 붙이는 기능.
         /// </summary>
-        private void CreateCommonPanel(UIControlledApplication application, string assemblyPath)
+        private void CreateCommonConnectPanel(UIControlledApplication application, string assemblyPath)
         {
-            RibbonPanel panel = application.CreateRibbonPanel(TabName, "공용");
-
-            // "직각 배관 생성기" 는 사용하지 않기로 해서 버튼(아이콘)을 제거했다.
-            // 기능 코드도 Commands/RightAnglePipeCommand.cs, Core/RightAnglePipeHelper.cs 에서
-            // 통째로 주석 처리해 두었으므로, 되살리려면 그 두 파일의 주석을 풀고
-            // 여기에 AddButton 을 다시 추가하면 된다.
-            // (아래 "직각 배관 연결기" 는 이름은 비슷하지만 다른 기능이다.
-            //  생성기는 "직각인 두 배관" 을, 연결기는 "평행한 두 배관" 을 대상으로 한다)
-
-            AddButton(panel, assemblyPath,
-                "RightAngleConnectButton",
-                "직각 배관\n연결기",
-                "FBXtoRVT.Commands.RightAngleConnectCommand",
-                "평행한 두 배관을 차례로 클릭하면 직각 배관을 만들고 엘보까지 넣어 연결합니다.",
-                "평행한 첫 번째 배관, 두 번째 배관을 차례로 클릭합니다. 두 배관 중심선의 공통수선을 " +
-                "구해 그 자리에 직각(90도) 배관을 만들고, 양쪽에 엘보를 넣어 세 배관을 하나로 " +
-                "연결합니다(대각 배관 생성기의 90도 버전이며, Trim 까지 대신 해 줍니다). 직각 배관은 " +
-                "두 배관에서 서로 마주보는 쪽 끝의 가운데에 세우고, 각 배관의 끝을 그 자리까지 " +
-                "늘리거나 줄입니다. 이어 붙일 쪽 커넥터에 캡·플랜지·기존 엘보 같은 부품이 붙어 " +
-                "있으면 먼저 지웁니다. 배관 타입·System Type·지름은 항상 첫 번째로 고른 배관을 " +
-                "따라갑니다. 두 배관이 평행하지 않거나 같은 직선 위에 있으면 실행하지 않습니다.",
-                "연", Colors.SteelBlue);
+            RibbonPanel panel = application.CreateRibbonPanel(TabName, "공용(연결)");
 
             AddButton(panel, assemblyPath,
                 "ElbowConnectButton",
@@ -183,6 +164,35 @@ namespace FBXtoRVT
                 "'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 변경 없이 연결합니다. " +
                 "(부품이 이동·회전)",
                 "장", Colors.DarkCyan);
+        }
+
+        /// <summary>
+        /// "공용(배관)" 패널: 배관을 새로 만드는 기능.
+        /// </summary>
+        private void CreateCommonPipePanel(UIControlledApplication application, string assemblyPath)
+        {
+            RibbonPanel panel = application.CreateRibbonPanel(TabName, "공용(배관)");
+
+            // "직각 배관 생성기" 는 사용하지 않기로 해서 버튼(아이콘)을 제거했다.
+            // 기능 코드도 Commands/RightAnglePipeCommand.cs, Core/RightAnglePipeHelper.cs 에서
+            // 통째로 주석 처리해 두었으므로, 되살리려면 그 두 파일의 주석을 풀고
+            // 여기에 AddButton 을 다시 추가하면 된다.
+            // (아래 "직각 배관 연결기" 는 이름은 비슷하지만 다른 기능이다.
+            //  생성기는 "직각인 두 배관" 을, 연결기는 "평행한 두 배관" 을 대상으로 한다)
+
+            AddButton(panel, assemblyPath,
+                "RightAngleConnectButton",
+                "직각 배관\n연결기",
+                "FBXtoRVT.Commands.RightAngleConnectCommand",
+                "평행한 두 배관을 차례로 클릭하면 직각 배관을 만들고 엘보까지 넣어 연결합니다.",
+                "평행한 첫 번째 배관, 두 번째 배관을 차례로 클릭합니다. 두 배관 중심선의 공통수선을 " +
+                "구해 그 자리에 직각(90도) 배관을 만들고, 양쪽에 엘보를 넣어 세 배관을 하나로 " +
+                "연결합니다(대각 배관 생성기의 90도 버전이며, Trim 까지 대신 해 줍니다). 직각 배관은 " +
+                "두 배관에서 서로 마주보는 쪽 끝의 가운데에 세우고, 각 배관의 끝을 그 자리까지 " +
+                "늘리거나 줄입니다. 이어 붙일 쪽 커넥터에 캡·플랜지·기존 엘보 같은 부품이 붙어 " +
+                "있으면 먼저 지웁니다. 배관 타입·System Type·지름은 항상 첫 번째로 고른 배관을 " +
+                "따라갑니다. 두 배관이 평행하지 않거나 같은 직선 위에 있으면 실행하지 않습니다.",
+                "연", Colors.SteelBlue);
 
             AddButton(panel, assemblyPath,
                 "FlexPipeButton",
@@ -195,6 +205,14 @@ namespace FBXtoRVT
                 "상태로 그대로 생성합니다. 둘 중 하나라도 열린 커넥터가 없으면 실행하지 않고, " +
                 "한 객체에 열린 커넥터가 2개 이상이면 서로의 객체와 가장 가까운 커넥터 쌍을 사용합니다.",
                 "F", Colors.OliveDrab);
+        }
+
+        /// <summary>
+        /// "공용(뷰/가시성)" 패널: 화면에 무엇을 보여줄지 다루는 기능.
+        /// </summary>
+        private void CreateCommonViewPanel(UIControlledApplication application, string assemblyPath)
+        {
+            RibbonPanel panel = application.CreateRibbonPanel(TabName, "공용(뷰/가시성)");
 
             AddButton(panel, assemblyPath,
                 "LinkVisibilityButton",
@@ -209,15 +227,6 @@ namespace FBXtoRVT
                 "채로 남고 화면에만 안 보이게 되는 방식입니다. 대화상자 없이 즉시 토글되므로, " +
                 "Revit 의 키보드 단축키(사용자 인터페이스 > 단축키)에 등록해 쓰면 편합니다.",
                 "L", Colors.SlateGray);
-        }
-
-        /// <summary>
-        /// "기타" 패널: 보조(뷰 조작) 기능.
-        /// 프로젝트 공통 규칙(docs/PROJECT_RULES.md 규칙 2)에 따라 가장 오른쪽 패널로 둔다.
-        /// </summary>
-        private void CreateEtcPanel(UIControlledApplication application, string assemblyPath)
-        {
-            RibbonPanel panel = application.CreateRibbonPanel(TabName, "기타");
 
             AddButton(panel, assemblyPath,
                 "SectionBoxButton",
