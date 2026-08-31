@@ -169,6 +169,18 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
+        /// 타입명(Symbol.Name)에 키워드가 포함되는지(대소문자 무시).
+        /// </summary>
+        public static bool TypeNameContains(Element e, string keyword)
+        {
+            var fi = e as FamilyInstance;
+            if (fi == null || fi.Symbol == null) return false;
+
+            string typeName = fi.Symbol.Name ?? "";
+            return typeName.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
         /// 패밀리명(Family.Name) 또는 타입명(Symbol.Name)에 키워드가 포함되는지(대소문자 무시).
         /// "이름" 이라고만 하면 사용자는 보통 둘 중 아무 쪽이나 뜻하므로, 두 이름을 모두 본다.
         /// </summary>

@@ -100,9 +100,9 @@ namespace FBXtoRVT
                 "SCRUBBER 장비 안의 FLANGE / NUT 을 장비의 열린 커넥터에 연결합니다.",
                 "패밀리명에 'SCRUBBER' 가 포함된 장비의 바운딩 박스 안에서 'FLANGE' / 'NUT' 부품을 찾고, " +
                 "부품 바운딩 박스 안에 장비의 열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 " +
-                "인식합니다. FLANGE 는 열린 커넥터 개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 " +
-                "해제한 뒤 연결하고(이름에 'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 " +
-                "변경 없이 연결합니다. (부품이 이동·회전)",
+                "인식합니다. FLANGE 는 지금 붙이는 커넥터 쪽 플랜지('FLANGE 상' 또는 'FLANGE 하')를 " +
+                "해제한 뒤 연결합니다. 어느 쪽인지는 패밀리 이름으로 정해집니다(NW=하, DC/BELLOWS=상, " +
+                "BLIND 와 그 밖의 이름은 변경 없음). NUT 은 파라미터 변경 없이 연결합니다. (부품이 이동·회전)",
                 "S", Colors.DarkSlateBlue);
 
             AddButton(panel, assemblyPath,
@@ -146,9 +146,10 @@ namespace FBXtoRVT
                 "뒤, 그 안에 중심점 또는 커넥터점이 들어가는 FLANGE 가 정확히 1개일 때만 대상으로 " +
                 "인식합니다. HOPPER 의 모든 커넥터 굵기(ND)가 서로 같으면 플랜지의 'ND1' 값을 HOPPER 의 " +
                 "'ND1' 에 넣습니다(50A/75A 처럼 서로 다르면 넣지 않습니다). 이어서 HOPPER 에 가까운 쪽 " +
-                "플랜지 커넥터가 Primary 인지에 따라 NW FLANGE 는 'FLANGE 하'/'FLANGE 상' 을, DC FLANGE 는 " +
-                "'FLANGE 상'/'FLANGE 하' 를 해제하고(BLIND FLANGE 는 변경 없음), HOPPER 의 " +
-                "Primary 가 아닌 커넥터를 그 플랜지 커넥터에 이동·회전으로 연결합니다.",
+                "플랜지 커넥터, 즉 지금 붙이는 커넥터 쪽 플랜지('FLANGE 상' 또는 'FLANGE 하')를 " +
+                "해제합니다. 어느 쪽인지는 패밀리 이름으로 정해집니다(NW=하, DC/BELLOWS=상, BLIND 와 " +
+                "그 밖의 이름은 변경 없음). 마지막으로 HOPPER 의 Primary 가 아닌 커넥터를 그 플랜지 " +
+                "커넥터에 이동·회전으로 연결합니다.",
                 "홉", Colors.Crimson);
 
             AddButton(panel, assemblyPath,
@@ -159,10 +160,10 @@ namespace FBXtoRVT
                 "SCR장비&플랜지/NUT 과 동일한 규칙이되, 대상이 'SCRUBBER' 패밀리가 아니라 " +
                 "Mechanical Equipment 카테고리 전체입니다. 장비의 바운딩 박스를 모든 방향으로 20mm " +
                 "확장한 뒤 그 안에서 'FLANGE' / 'NUT' 부품을 찾고, 부품 바운딩 박스 안에 장비의 열린 " +
-                "커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 열린 커넥터 " +
-                "개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 해제한 뒤 연결하고(이름에 " +
-                "'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 변경 없이 연결합니다. " +
-                "(부품이 이동·회전)",
+                "커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 지금 붙이는 " +
+                "커넥터 쪽 플랜지('FLANGE 상' 또는 'FLANGE 하')를 해제한 뒤 연결합니다. 어느 쪽인지는 " +
+                "패밀리 이름으로 정해집니다(NW=하, DC/BELLOWS=상, BLIND 와 그 밖의 이름은 변경 없음). " +
+                "NUT 은 파라미터 변경 없이 연결합니다. (부품이 이동·회전)",
                 "장", Colors.DarkCyan);
         }
 

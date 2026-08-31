@@ -16,17 +16,9 @@ namespace FBXtoRVT.Core
     ///     플랜지의 "ND1" 값을 HOPPER 의 "ND1" 에 복사한다.
     ///     (HOPPER 커넥터가 50A / 75A 처럼 서로 다르면 복사하지 않는다)
     ///  3) 플랜지의 커넥터 중 HOPPER 에 가까운 쪽이 Primary 커넥터인지 조사하고,
-    ///     플랜지 종류에 따라 아래 파라미터를 해제한다.
-    ///
-    ///       가까운 커넥터가 Primary 인 경우
-    ///         NW FLANGE    : "FLANGE 하" 해제
-    ///         DC FLANGE    : "FLANGE 상" 해제
-    ///         BLIND FLANGE : 파라미터 수정 없음
-    ///
-    ///       가까운 커넥터가 Primary 가 아닌 경우
-    ///         NW FLANGE    : "FLANGE 상" 해제
-    ///         DC FLANGE    : "FLANGE 하" 해제
-    ///         BLIND FLANGE : 파라미터 수정 없음
+    ///     <b>지금 붙이는 커넥터 쪽 플랜지를 해제한다.</b>
+    ///     그 커넥터가 상인지 하인지는 패밀리마다 다르므로 <see cref="FlangeSideTable"/> 의 표를 본다.
+    ///     (표에 없는 패밀리와 BLIND FLANGE 는 파라미터를 건드리지 않는다)
     ///
     ///  4) HOPPER 의 Primary 가 아닌 커넥터를 위에서 조사한 플랜지 커넥터에 연결한다.
     ///     (HOPPER 가 이동·회전한다)
@@ -35,15 +27,6 @@ namespace FBXtoRVT.Core
     {
         // HOPPER 바운딩 박스 확장량(mm). 모든 방향(X/Y/Z 앞뒤)으로 이만큼 키운다.
         private const double HopperBoxExpandMm = 50.0;
-
-        /// <summary>플랜지 종류.</summary>
-        private enum FlangeKind
-        {
-            Unknown, // NW / DC / BLIND 중 어디에도 해당하지 않음
-            Nw,
-            Dc,
-            Blind
-        }
 
         /// <summary>
         /// 실행 결과 요약.
@@ -185,12 +168,12 @@ namespace FBXtoRVT.Core
             int flangeConnId = nearConn.Id;
             bool isPrimary = ElementUtils.IsPrimaryConnector(nearConn);
 
-            // 3) 플랜지 종류 + Primary 여부에 따라 파라미터 해제
-            FlangeKind kind = GetFlangeKind(targetFlange);
-            string paramToUncheck = GetParamToUncheck(kind, isPrimary);
+            // 3) 지금 붙이는 커넥터 쪽 플랜지를 해제한다. (상/하 판단은 패밀리별 표가 한다)
+            string paramToUncheck = FlangeSideTable.GetParamToUncheck(targetFlange, isPrimary);
 
             if (LogUtils.DetailEnabled)
-                LogUtils.LogDetail($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) kind={kind} " +
+                LogUtils.LogDetail($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) " +
+                    $"Primary쪽={FlangeSideTable.GetPrimarySide(targetFlange)} " +
                     $"nearConnId={flangeConnId} isPrimary={isPrimary} paramToUncheck={paramToUncheck ?? "(없음)"}");
 
             if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(targetFlange, paramToUncheck))
@@ -305,34 +288,6 @@ namespace FBXtoRVT.Core
             {
                 LogUtils.LogDetail($"HOPPER(Id={hopperId}) {ParamNames.Nd1} 복사 안 됨(파라미터 없음 / 읽기전용 / 이미 같은 값).");
             }
-        }
-
-        /// <summary>
-        /// 패밀리명으로 플랜지 종류를 판별한다.
-        /// (BLIND 를 먼저 보고, 그다음 NW / DC 순으로 검사)
-        /// </summary>
-        private static FlangeKind GetFlangeKind(Element flange)
-        {
-            if (ElementUtils.FamilyNameContains(flange, FamilyKeywords.BlindFlange)) return FlangeKind.Blind;
-            if (ElementUtils.FamilyNameContains(flange, FamilyKeywords.NwFlange)) return FlangeKind.Nw;
-            if (ElementUtils.FamilyNameContains(flange, FamilyKeywords.DcFlangeKind)) return FlangeKind.Dc;
-
-            return FlangeKind.Unknown;
-        }
-
-        /// <summary>
-        /// 플랜지 종류와 "가까운 커넥터가 Primary 인지" 에 따라 해제할 파라미터 이름을 반환.
-        /// 해제할 것이 없으면 null. (BLIND / 종류 불명은 파라미터를 건드리지 않는다)
-        /// </summary>
-        private static string GetParamToUncheck(FlangeKind kind, bool isPrimary)
-        {
-            if (kind == FlangeKind.Nw)
-                return isPrimary ? ParamNames.FlangeLower : ParamNames.FlangeUpper;
-
-            if (kind == FlangeKind.Dc)
-                return isPrimary ? ParamNames.FlangeUpper : ParamNames.FlangeLower;
-
-            return null;
         }
 
         /// <summary>

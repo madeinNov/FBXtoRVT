@@ -298,6 +298,58 @@ public class SleeveAdjustCommand : ViewCommandBase
 
 ---
 
+## 규칙 6. 플랜지 상/하 판단은 `FlangeSideTable` 에만 적는다
+
+### 내용
+
+플랜지를 무언가에 붙일 때 하는 일은 **어느 기능에서나 똑같다.**
+
+> **지금 붙이는 커넥터 쪽 플랜지를 해제한다.**
+
+그런데 "지금 쓰는 커넥터가 상이냐 하냐" 는 패밀리마다 다르다.
+그 **패밀리별 정보만** `Core/FlangeSideTable.cs` 의 표에 적고,
+각 기능은 "Primary 커넥터를 쓰는가, 아닌가" 만 넘긴다.
+
+### 이유
+
+예전에는 상/하 판단을 기능마다 따로 적어 두어서 규칙이 갈라져 있었다.
+같은 DC FLANGE 인데 장비&플랜지 기능은 "하" 를, HOPPER&플랜지 기능은 "상" 을 해제했다.
+표 하나로 모으면 이런 어긋남이 생길 수 없고, 새 패밀리가 생겨도 한 줄만 추가하면 된다.
+
+### 현재 표
+
+| 이름 키워드 | Primary 커넥터가 있는 쪽 |
+| --- | --- |
+| `BLIND` | 없음 (한쪽뿐이라 해제할 것이 없음) |
+| `BELLOWS` | 상 |
+| `DC` | 상 |
+| `NW` | 하 |
+| 그 밖의 이름 | **없음 (아무것도 해제하지 않는다)** |
+
+- **위에서부터 검사해서 먼저 걸리는 줄을 쓴다.** 이름에 두 키워드가 다 들어있을 때
+  어느 쪽이 이기는지가 표의 순서로 정해진다. (예: `BLIND DC FLANGE` → BLIND 가 이겨서 "없음")
+- **패밀리명을 먼저 보고, 패밀리명에서 못 찾았을 때만 타입명을 본다.**
+- 모르는 패밀리에 짐작으로 상/하를 해제하면 엉뚱한 형상이 사라질 수 있으므로,
+  표에 없으면 아무것도 하지 않는다.
+
+### 적용 방법
+
+```csharp
+// 각 기능은 이 한 줄만 부른다. 해제할 것이 없으면 null 이 돌아온다.
+string paramToUncheck = FlangeSideTable.GetParamToUncheck(flange, usingPrimary);
+
+if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(flange, paramToUncheck))
+{
+    result.ParamUncheckedCount++;
+    doc.Regenerate();   // 형상이 바뀌므로 이후 커넥터는 다시 조회한다
+}
+```
+
+새 플랜지 패밀리가 생기면 `FlangeSideTable.Table` 에 한 줄만 추가한다.
+기능 쪽 코드는 손대지 않는다.
+
+---
+
 ## 공통 코드가 어디 있는지
 
 같은 계산을 파일마다 다시 만들지 않도록, 아래 파일들을 먼저 확인한다.
@@ -310,6 +362,7 @@ public class SleeveAdjustCommand : ViewCommandBase
 | `Core/ConnectorHelper.cs` | 한쪽 객체를 움직여 상대 커넥터에 맞춘 뒤 연결 |
 | `Core/PipeGeometryUtils.cs` | 배관 중심선, 평행 판정, 공통수선 계산 |
 | `Core/FlangeNutAttachHelper.cs` | 장비 안의 FLANGE / NUT 을 장비 커넥터에 붙이는 규칙 |
+| `Core/FlangeSideTable.cs` | 패밀리별 Primary 커넥터가 상인지 하인지 (규칙 6) |
 | `Core/LogUtils.cs` | 로그 (규칙 4) |
 | `Commands/ViewCommandBase.cs` | 뷰 전체를 훑는 명령의 공통 뼈대 (규칙 5) |
 
@@ -328,6 +381,7 @@ public class SleeveAdjustCommand : ViewCommandBase
 - [ ] 반복문 안의 `LogDetail` 을 `if (LogUtils.DetailEnabled)` 로 감쌌는가? (규칙 4)
 - [ ] `catch` 로 실패를 삼킬 때 `LogUtils.LogError` 를 남겼는가? (규칙 4)
 - [ ] 뷰 전체를 훑는 명령이면 `ViewCommandBase` 를 상속했는가? (규칙 5)
+- [ ] 플랜지 상/하 판단을 기능 안에 적지 않고 `FlangeSideTable` 에 맡겼는가? (규칙 6)
 - [ ] 키워드 문자열을 `Core/Keywords.cs` 에 넣었는가? (파일마다 따로 적지 않았는가)
 - [ ] 로직은 `Core/`, Revit 진입점(문서·뷰 검사, 입력창, Transaction, 결과 요약)은
       `Commands/` 로 나눴는가?
