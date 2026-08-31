@@ -12,7 +12,9 @@ obj/
 
 # ===== Claude Code 작업 폴더 =====
 # 임시 워크트리라 저장소에 들어가면 안 된다.
-.claude/worktrees/
+# 앞에 ** 를 붙여야 하위 폴더(FBXtoRVT/.claude/worktrees/)까지 걸린다.
+# (중간에 슬래시가 있는 패턴은 ** 없이 쓰면 저장소 루트에만 적용된다)
+**/.claude/worktrees/
 
 # ===== 참고 =====
 # build/package.zip 과 build/package/ 안의 배포용 DLL 은
