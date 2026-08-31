@@ -61,6 +61,10 @@ namespace FBXtoRVT.Core
 
             LogUtils.Log($"===== LINK ON/OFF 시작. 뷰={view.Name}({view.ViewType}) 좌표조정모델={linkIds.Count}개 =====");
 
+            // 어떤 객체인지 / 어떤 파라미터를 갖고 있는지 자세히 남긴다.
+            // (좌표조정 모델은 Revit API 로 켜고 끄는 표준 방법이 없어서, 실제 모델을 보고 방법을 찾아야 한다)
+            LogCoordinationModelDetails(doc, view, linkIds);
+
             // 뷰 템플릿이 좌표조정 모델 가시성을 잠그고 있는지 확인
             string templateName;
             bool lockedByTemplate = IsLockedByTemplate(doc, view, out templateName);
@@ -70,10 +74,19 @@ namespace FBXtoRVT.Core
                 : $"뷰 템플릿: '{templateName}' ({(lockedByTemplate ? "좌표조정 모델 가시성을 잠그고 있음" : "잠그지 않음")})");
 
             // ===== 1) 카테고리 가시성 =====
+            //
+            // 후보 카테고리를 여러 개 시도한다.
+            //  - 기본 상수 OST_Coordination_Model
+            //  - 객체가 실제로 물고 있는 카테고리 (링크 파일마다 하위 카테고리로 갈리는 경우가 있다)
+            //  - 그 하위 카테고리의 상위 카테고리
+            // 기본 상수 하나만 보고 "안 된다" 고 끝내면, 하위 카테고리로는 되는 경우를 놓친다.
             if (!lockedByTemplate)
             {
-                ToggleResult categoryResult = TryToggleCategory(view, categoryId, linkIds.Count, diagnosis);
-                if (categoryResult != null) return categoryResult;
+                foreach (ElementId candidateId in CollectCandidateCategoryIds(doc, categoryId, linkIds))
+                {
+                    ToggleResult categoryResult = TryToggleCategory(view, candidateId, linkIds.Count, diagnosis);
+                    if (categoryResult != null) return categoryResult;
+                }
             }
             else
             {
@@ -189,8 +202,24 @@ namespace FBXtoRVT.Core
 
             if (hiddenIds.Count == 0 && visibleIds.Count == 0)
             {
-                diagnosis.Add($"객체 숨기기 방법: 실패 (찾은 {linkIds.Count}개 모두 이 뷰에서 숨길 수 없음)");
-                return null;
+                // CanBeHidden 이 false 라고 해서 진짜 안 되는지는 해봐야 안다.
+                // (특수한 객체는 이 값이 실제와 다르게 나오는 경우가 있다)
+                LogUtils.Log($"CanBeHidden 이 전부 false 지만, 그래도 숨기기를 시도해 봅니다. {linkIds.Count}개");
+
+                foreach (ElementId id in linkIds)
+                {
+                    Element e = doc.GetElement(id);
+                    if (e == null) continue;
+
+                    if (SafeIsHidden(e, view)) hiddenIds.Add(id);
+                    else visibleIds.Add(id);
+                }
+
+                if (hiddenIds.Count == 0 && visibleIds.Count == 0)
+                {
+                    diagnosis.Add($"객체 숨기기 방법: 실패 (찾은 {linkIds.Count}개 모두 이 뷰에서 숨길 수 없음)");
+                    return null;
+                }
             }
 
             try
@@ -230,6 +259,121 @@ namespace FBXtoRVT.Core
         }
 
         // ===== 공통 =====
+
+        /// <summary>
+        /// 카테고리 가시성을 시도해 볼 카테고리 Id 후보를 모은다.
+        /// 기본 상수 → 객체의 실제 카테고리 → 그 상위 카테고리 순. 중복은 뺀다.
+        /// </summary>
+        private static List<ElementId> CollectCandidateCategoryIds(Document doc,
+            ElementId builtInCategoryId, List<ElementId> linkIds)
+        {
+            var ids = new List<ElementId> { builtInCategoryId };
+
+            foreach (ElementId id in linkIds)
+            {
+                Element e = doc.GetElement(id);
+                Category category = (e != null) ? e.Category : null;
+                if (category == null) continue;
+
+                if (!ids.Any(x => x == category.Id)) ids.Add(category.Id);
+
+                Category parent = category.Parent;
+                if (parent != null && !ids.Any(x => x == parent.Id)) ids.Add(parent.Id);
+            }
+
+            LogUtils.Log("카테고리 후보: " + string.Join(", ", ids.Select(x => x.ToString())));
+            return ids;
+        }
+
+        /// <summary>
+        /// 좌표조정 모델 객체가 어떤 물건인지 로그에 자세히 남긴다.
+        /// 표준 API 로는 켜고 끌 수 없는 것으로 보이므로, 실제 모델에서 쓸 수 있는 방법을
+        /// 찾기 위한 자료를 모으는 용도다. (클래스 / 카테고리 / 워크셋 / 파라미터 전부)
+        /// </summary>
+        private static void LogCoordinationModelDetails(Document doc, View view, List<ElementId> linkIds)
+        {
+            LogUtils.Log($"[진단] 문서 workshared={doc.IsWorkshared}");
+
+            foreach (ElementId id in linkIds)
+            {
+                Element e = doc.GetElement(id);
+                if (e == null) continue;
+
+                Category category = e.Category;
+                string categoryText = (category == null)
+                    ? "(없음)"
+                    : $"{category.Name}(Id={category.Id}, 상위={(category.Parent == null ? "없음" : category.Parent.Name)})";
+
+                LogUtils.Log($"[진단] Id={id} 클래스={e.GetType().FullName} 이름='{e.Name}' 카테고리={categoryText}");
+                LogUtils.Log($"[진단]   숨김가능={SafeCanBeHidden(e, view)} 현재숨김={SafeIsHidden(e, view)} " +
+                    $"뷰에보임={IsShownInView(doc, view, id)} 워크셋Id={e.WorksetId}");
+
+                // 파라미터 전부 (가시성 관련 파라미터가 있는지 찾기 위함)
+                try
+                {
+                    foreach (Parameter p in e.Parameters)
+                    {
+                        if (p == null || p.Definition == null) continue;
+
+                        LogUtils.Log($"[진단]   파라미터 '{p.Definition.Name}' " +
+                            $"타입={p.StorageType} 읽기전용={p.IsReadOnly} 값={SafeParamValue(p)}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogUtils.LogError(ex, "파라미터 나열 실패.");
+                }
+            }
+        }
+
+        /// <summary>현재 뷰에 실제로 나오는 객체인지.</summary>
+        private static bool IsShownInView(Document doc, View view, ElementId id)
+        {
+            try
+            {
+                return new FilteredElementCollector(doc, view.Id)
+                    .OfCategory(CoordinationModelCategory)
+                    .WhereElementIsNotElementType()
+                    .Any(x => x.Id == id);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>파라미터 값을 문자열로. 실패하면 빈 문자열.</summary>
+        private static string SafeParamValue(Parameter p)
+        {
+            try
+            {
+                switch (p.StorageType)
+                {
+                    case StorageType.String: return p.AsString() ?? "";
+                    case StorageType.Integer: return p.AsInteger().ToString();
+                    case StorageType.Double: return p.AsDouble().ToString("F4");
+                    case StorageType.ElementId: return p.AsElementId().ToString();
+                    default: return "";
+                }
+            }
+            catch (Exception)
+            {
+                return "(읽기실패)";
+            }
+        }
+
+        /// <summary>CanBeHidden 이 예외를 던져도 기능이 멈추지 않도록 감싼다.</summary>
+        private static bool SafeCanBeHidden(Element e, View view)
+        {
+            try
+            {
+                return e.CanBeHidden(view);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
 
         /// <summary>
         /// 문서에 들어있는 좌표조정 모델(Coordination Model) 객체 Id 를 모은다.
