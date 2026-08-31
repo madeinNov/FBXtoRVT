@@ -33,6 +33,10 @@ namespace FBXtoRVT.Core
         // 대상 카테고리: 좌표조정 모델(Navisworks 링크)
         private const BuiltInCategory CoordinationModelCategory = BuiltInCategory.OST_Coordination_Model;
 
+        // 좌표조정 모델을 켜고 끄기 위해 이 애드인이 만들어 쓰는 "선택 필터" 이름.
+        // 뷰의 V/G > Filters 탭에 이 이름으로 보인다. 지워도 다음 실행 때 다시 만들어진다.
+        private const string SelectionFilterName = "FBXtoRVT 좌표조정모델 ON/OFF";
+
         /// <summary>토글 결과.</summary>
         public class ToggleResult
         {
@@ -61,6 +65,7 @@ namespace FBXtoRVT.Core
             diagnosis.Insert(0, $"뷰: {view.Name} (종류 {view.ViewType})");
 
             LogUtils.Log($"===== LINK ON/OFF 시작. 뷰={view.Name}({view.ViewType}) 좌표조정모델={linkIds.Count}개 =====");
+            LogUtils.Log($"[진단] 좌표조정 모델 카테고리가 필터 가능한가: {IsCoordinationModelFilterable()}");
 
             // 어떤 객체인지 / 어떤 파라미터를 갖고 있는지 자세히 남긴다.
             // (좌표조정 모델은 Revit API 로 켜고 끄는 표준 방법이 없어서, 실제 모델을 보고 방법을 찾아야 한다)
@@ -74,7 +79,19 @@ namespace FBXtoRVT.Core
                 ? "뷰 템플릿: 없음"
                 : $"뷰 템플릿: '{templateName}' ({(lockedByTemplate ? "좌표조정 모델 가시성을 잠그고 있음" : "잠그지 않음")})");
 
-            // ===== 0) 뷰 파라미터 =====
+            // ===== 0) 선택 필터 (가장 유력한 방법) =====
+            //
+            // 좌표조정 모델은 카테고리로도 객체로도 숨길 수 없다는 것이 로그로 확인됐다.
+            // 남은 정식 경로는 "뷰 필터" 다. V/G 의 Filters 탭에 걸린 필터는 가시성을 끌 수 있고,
+            // 그 대상은 카테고리가 아니라 <b>객체 목록</b>으로 지정할 수 있다(SelectionFilterElement).
+            // 카테고리가 필터 가능 목록에 없어도 되므로, 이 방법이 가장 가능성이 높다.
+            if (linkIds.Count > 0)
+            {
+                ToggleResult filterResult = TryToggleWithSelectionFilter(doc, view, linkIds, diagnosis);
+                if (filterResult != null) return filterResult;
+            }
+
+            // ===== 0-2) 뷰 파라미터 =====
             //
             // V/G 대화상자의 "Coordination Models" 탭에는
             // "Show Coordination Models in this view" 체크박스가 있다.
@@ -112,7 +129,11 @@ namespace FBXtoRVT.Core
             ToggleResult elementResult = TryToggleElements(doc, view, linkIds, diagnosis);
             if (elementResult != null) return elementResult;
 
-            // ===== 3) 둘 다 실패 =====
+            // ===== 3) 마지막 수단: 완전 투명하게 만들어 안 보이게 =====
+            ToggleResult transparencyResult = TryToggleWithTransparency(doc, view, linkIds, diagnosis);
+            if (transparencyResult != null) return transparencyResult;
+
+            // ===== 4) 전부 실패 =====
             string help = lockedByTemplate
                 ? $"이 뷰에는 뷰 템플릿 '{templateName}' 이(가) 걸려 있고, 그 템플릿이 좌표조정 모델의 " +
                   "가시성을 제어하고 있습니다.\n" +
@@ -125,7 +146,115 @@ namespace FBXtoRVT.Core
             throw new InvalidOperationException(help + "\n\n" + BuildDiagnosisText(diagnosis));
         }
 
-        // ===== 0) 뷰 파라미터 =====
+        // ===== 0) 선택 필터 =====
+
+        /// <summary>
+        /// "선택 필터(SelectionFilterElement)" 를 만들어 뷰에 걸고, 그 필터의 가시성을 끄고 켠다.
+        /// 성공하면 결과, 못 하면 null.
+        ///
+        /// 선택 필터는 <b>객체 Id 목록</b>으로 대상을 지정하므로,
+        /// 카테고리가 필터 가능 목록에 없어도 쓸 수 있다.
+        /// 필터는 이름으로 재사용하며, 없으면 한 번만 만든다.
+        /// </summary>
+        private static ToggleResult TryToggleWithSelectionFilter(Document doc, View view,
+            List<ElementId> linkIds, List<string> diagnosis)
+        {
+            try
+            {
+                // 1) 이름으로 기존 필터를 찾고, 없으면 새로 만든다
+                SelectionFilterElement filter = new FilteredElementCollector(doc)
+                    .OfClass(typeof(SelectionFilterElement))
+                    .Cast<SelectionFilterElement>()
+                    .FirstOrDefault(f => f.Name == SelectionFilterName);
+
+                if (filter == null)
+                {
+                    filter = SelectionFilterElement.Create(doc, SelectionFilterName);
+                    LogUtils.Log($"선택 필터 '{SelectionFilterName}' 을 새로 만들었습니다. Id={filter.Id}");
+                }
+
+                // 2) 대상 객체를 항상 최신으로 맞춘다 (링크가 바뀌거나 늘어날 수 있으므로)
+                filter.SetElementIds(linkIds);
+
+                // 3) 뷰에 아직 안 걸려 있으면 건다
+                if (!view.GetFilters().Any(id => id == filter.Id))
+                {
+                    view.AddFilter(filter.Id);
+                    LogUtils.Log($"뷰 '{view.Name}' 에 선택 필터를 걸었습니다.");
+                }
+
+                // 4) 가시성 토글
+                bool currentlyVisible = view.GetFilterVisibility(filter.Id);
+                view.SetFilterVisibility(filter.Id, !currentlyVisible);
+
+                LogUtils.Log($"선택 필터 가시성 토글 성공. {currentlyVisible} -> {!currentlyVisible}");
+
+                return new ToggleResult
+                {
+                    NowVisible = !currentlyVisible,
+                    UsedCategory = false,
+                    LinkCount = linkIds.Count,
+                    Method = "선택 필터"
+                };
+            }
+            catch (Exception ex)
+            {
+                diagnosis.Add($"선택 필터 방법: 실패 ({ex.Message})");
+                LogUtils.LogError(ex, "선택 필터로 좌표조정 모델 가시성 변경 실패.");
+                return null;
+            }
+        }
+
+        // ===== 마지막 수단) 투명도 =====
+
+        /// <summary>
+        /// 좌표조정 모델을 완전히 투명 + 하프톤으로 만들어 "사실상 안 보이게" 한다.
+        /// 성공하면 결과, 못 하면 null.
+        ///
+        /// 진짜로 끄는 것이 아니라 <b>보이지 않게 만드는 것</b>이라, 표시 스타일에 따라
+        /// 외곽선이 남을 수 있다. 다른 방법이 전부 막혔을 때만 쓴다.
+        /// </summary>
+        private static ToggleResult TryToggleWithTransparency(Document doc, View view,
+            List<ElementId> linkIds, List<string> diagnosis)
+        {
+            try
+            {
+                // 지금 투명 처리돼 있으면 "꺼진 상태" 로 본다
+                OverrideGraphicSettings current = view.GetElementOverrides(linkIds[0]);
+                bool currentlyInvisible = current != null && current.Transparency >= 100;
+
+                OverrideGraphicSettings settings = currentlyInvisible
+                    ? new OverrideGraphicSettings()   // 되돌리기 (덮어쓴 설정 해제)
+                    : new OverrideGraphicSettings()
+                        .SetSurfaceTransparency(100)
+                        .SetHalftone(true)
+                        .SetSurfaceForegroundPatternVisible(false)
+                        .SetSurfaceBackgroundPatternVisible(false);
+
+                foreach (ElementId id in linkIds)
+                {
+                    view.SetElementOverrides(id, settings);
+                }
+
+                LogUtils.Log($"투명도 방식으로 처리했습니다. 이제 {(currentlyInvisible ? "보임" : "안 보임")}");
+
+                return new ToggleResult
+                {
+                    NowVisible = currentlyInvisible,
+                    UsedCategory = false,
+                    LinkCount = linkIds.Count,
+                    Method = "투명도(완전 투명)"
+                };
+            }
+            catch (Exception ex)
+            {
+                diagnosis.Add($"투명도 방법: 실패 ({ex.Message})");
+                LogUtils.LogError(ex, "투명도로 좌표조정 모델 감추기 실패.");
+                return null;
+            }
+        }
+
+        // ===== 0-2) 뷰 파라미터 =====
 
         /// <summary>
         /// 뷰의 파라미터로 좌표조정 모델 표시를 켜고 끈다. 성공하면 결과, 못 하면 null.
@@ -448,6 +577,24 @@ namespace FBXtoRVT.Core
                 {
                     LogUtils.LogError(ex, "파라미터 나열 실패.");
                 }
+            }
+        }
+
+        /// <summary>
+        /// 좌표조정 모델 카테고리가 Revit 의 "필터 가능한 카테고리" 목록에 있는지. (진단용)
+        /// 여기 없으면 카테고리 기반 필터(ParameterFilterElement)는 쓸 수 없고,
+        /// 객체 목록 기반 선택 필터(SelectionFilterElement)만 가능하다.
+        /// </summary>
+        private static bool IsCoordinationModelFilterable()
+        {
+            try
+            {
+                var categoryId = new ElementId(CoordinationModelCategory);
+                return ParameterFilterUtilities.GetAllFilterableCategories().Any(id => id == categoryId);
+            }
+            catch (Exception)
+            {
+                return false;
             }
         }
 
