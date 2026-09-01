@@ -98,6 +98,7 @@ foreach (Element e in collector)
 | `Core/ScrubberFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 (장비 수집) |
 | `Core/EquipmentFlangeNutHelper.cs` | `ElementUtils.CollectFamilyInstancesByCategory` 사용 (장비 수집) |
 | `Core/ElbowConnectHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
+| `Core/ElbowAdapterHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 (엘보 / SCR 장비) |
 | `Core/HopperFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
 | `Core/OverlapSelectHelper.cs` | `CollectFamilyInstancesInView` 에서 `IsSubComponent` 로 제외 |
 
@@ -136,7 +137,7 @@ foreach (Element e in collector)
 | 패널 | 성격 | 현재 버튼 |
 | --- | --- | --- |
 | `1.포어라인` | 포어라인 작업 전용 | 타공 슬리브 조정 / 대각 배관 생성기 |
-| `2.SCR` | SCR 작업 전용 | SCR장비&플랜지/NUT / 겹침 객체 선택 |
+| `2.SCR` | SCR 작업 전용 | SCR장비&플랜지/NUT / 엘보 어댑터 생성기 / 겹침 객체 선택 |
 | `공용(연결)` | 부품을 커넥터에 붙이는 기능 | ELBOW&배관/플랜지 / HOPPER&플랜지 / 장비&플랜지/NUT |
 | `공용(배관)` | 배관을 새로 만드는 기능 | 직각 배관 연결기 / Flex Pipe 생성기 |
 | `공용(뷰/가시성)` | 화면에 무엇을 보여줄지 다루는 기능 | LINK ON/OFF / 선택 Section Box |
@@ -298,16 +299,16 @@ public class SleeveAdjustCommand : ViewCommandBase
 
 ---
 
-## 규칙 6. 플랜지 상/하 판단은 `FlangeSideTable` 에만 적는다
+## 규칙 6. 상/하 판단은 `PartSideTable` 에만 적는다
 
 ### 내용
 
-플랜지를 무언가에 붙일 때 하는 일은 **어느 기능에서나 똑같다.**
+부품을 무언가에 붙일 때 하는 일은 **어느 기능에서나 똑같다.**
 
-> **지금 붙이는 커넥터 쪽 플랜지를 해제한다.**
+> **지금 붙이는 커넥터 쪽 형상을 해제한다.**
 
-그런데 "지금 쓰는 커넥터가 상이냐 하냐" 는 패밀리마다 다르다.
-그 **패밀리별 정보만** `Core/FlangeSideTable.cs` 의 표에 적고,
+그런데 "지금 쓰는 커넥터가 상이냐 하냐" 와 "어떤 이름의 파라미터를 끄느냐" 는 패밀리마다 다르다.
+그 **패밀리별 정보만** `Core/PartSideTable.cs` 의 표에 적고,
 각 기능은 "Primary 커넥터를 쓰는가, 아닌가" 만 넘긴다.
 
 ### 이유
@@ -318,13 +319,21 @@ public class SleeveAdjustCommand : ViewCommandBase
 
 ### 현재 표
 
-| 이름 키워드 | Primary 커넥터가 있는 쪽 |
-| --- | --- |
-| `BLIND` | 없음 (한쪽뿐이라 해제할 것이 없음) |
-| `BELLOWS` | 상 |
-| `DC` | 상 |
-| `NW` | 하 |
-| 그 밖의 이름 | **없음 (아무것도 해제하지 않는다)** |
+| 이름 키워드 | Primary 쪽 | 해제 대상 파라미터 쌍 |
+| --- | --- | --- |
+| `BLIND` | 없음 | (없음. 한쪽뿐이라 해제할 것이 없음) |
+| `ASSEMBLY_ELBOW_ADPT_LOT-FLON` | 상 | `ADAPTOR_상`/`ADAPTOR_하`, `CLAMP 상`/`CLAMP 하` |
+| `BELLOWS` | 상 | `FLANGE 상`/`FLANGE 하` |
+| `DC` | 상 | `FLANGE 상`/`FLANGE 하` |
+| `NW` | 하 | `FLANGE 상`/`FLANGE 하` |
+| 그 밖의 이름 | 없음 | **아무것도 해제하지 않는다** |
+
+파라미터 쌍은 **한 패밀리에 여러 개**일 수 있다. 그때는 모든 쌍에서 **같은 쪽**을 해제한다.
+파라미터 이름이 `FLANGE` 로 시작할 필요는 없다. 상/하 한 쌍이기만 하면 된다.
+
+파라미터 이름은 패밀리의 실제 이름과 **한 글자도 다르면 안 된다.**
+이름이 틀리면 Revit 이 파라미터를 못 찾아 **조용히 아무 일도 일어나지 않는다.**
+(`ADAPTOR_상` 은 밑줄, `CLAMP 상` 은 띄어쓰기인 점에 주의)
 
 - **위에서부터 검사해서 먼저 걸리는 줄을 쓴다.** 이름에 두 키워드가 다 들어있을 때
   어느 쪽이 이기는지가 표의 순서로 정해진다. (예: `BLIND DC FLANGE` → BLIND 가 이겨서 "없음")
@@ -335,17 +344,22 @@ public class SleeveAdjustCommand : ViewCommandBase
 ### 적용 방법
 
 ```csharp
-// 각 기능은 이 한 줄만 부른다. 해제할 것이 없으면 null 이 돌아온다.
-string paramToUncheck = FlangeSideTable.GetParamToUncheck(flange, usingPrimary);
+// 각 기능은 이 한 줄만 부른다. 해제할 것이 없으면 빈 목록이 돌아온다.
+List<string> paramsToUncheck = PartSideTable.GetParamsToUncheck(part, usingPrimary);
 
-if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(flange, paramToUncheck))
+bool anyUnchecked = false;
+foreach (string paramName in paramsToUncheck)
 {
+    if (!ElementUtils.UncheckYesNoParam(part, paramName)) continue;
+
     result.ParamUncheckedCount++;
-    doc.Regenerate();   // 형상이 바뀌므로 이후 커넥터는 다시 조회한다
+    anyUnchecked = true;
 }
+
+if (anyUnchecked) doc.Regenerate();   // 형상이 바뀌므로 이후 커넥터는 다시 조회한다
 ```
 
-새 플랜지 패밀리가 생기면 `FlangeSideTable.Table` 에 한 줄만 추가한다.
+새 패밀리가 생기면 `PartSideTable.Table` 에 한 줄만 추가한다.
 기능 쪽 코드는 손대지 않는다.
 
 ---
@@ -362,7 +376,7 @@ if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(flange, paramToUnch
 | `Core/ConnectorHelper.cs` | 한쪽 객체를 움직여 상대 커넥터에 맞춘 뒤 연결 |
 | `Core/PipeGeometryUtils.cs` | 배관 중심선, 평행 판정, 공통수선 계산 |
 | `Core/FlangeNutAttachHelper.cs` | 장비 안의 FLANGE / NUT 을 장비 커넥터에 붙이는 규칙 |
-| `Core/FlangeSideTable.cs` | 패밀리별 Primary 커넥터가 상인지 하인지 (규칙 6) |
+| `Core/PartSideTable.cs` | 패밀리별 Primary 커넥터가 상인지 하인지 + 해제할 파라미터 (규칙 6) |
 | `Core/LogUtils.cs` | 로그 (규칙 4) |
 | `Commands/ViewCommandBase.cs` | 뷰 전체를 훑는 명령의 공통 뼈대 (규칙 5) |
 
@@ -381,7 +395,7 @@ if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(flange, paramToUnch
 - [ ] 반복문 안의 `LogDetail` 을 `if (LogUtils.DetailEnabled)` 로 감쌌는가? (규칙 4)
 - [ ] `catch` 로 실패를 삼킬 때 `LogUtils.LogError` 를 남겼는가? (규칙 4)
 - [ ] 뷰 전체를 훑는 명령이면 `ViewCommandBase` 를 상속했는가? (규칙 5)
-- [ ] 플랜지 상/하 판단을 기능 안에 적지 않고 `FlangeSideTable` 에 맡겼는가? (규칙 6)
+- [ ] 상/하 판단을 기능 안에 적지 않고 `PartSideTable` 에 맡겼는가? (규칙 6)
 - [ ] 키워드 문자열을 `Core/Keywords.cs` 에 넣었는가? (파일마다 따로 적지 않았는가)
 - [ ] 로직은 `Core/`, Revit 진입점(문서·뷰 검사, 입력창, Transaction, 결과 요약)은
       `Commands/` 로 나눴는가?

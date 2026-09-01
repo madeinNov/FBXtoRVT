@@ -106,6 +106,20 @@ namespace FBXtoRVT
                 "S", Colors.DarkSlateBlue);
 
             AddButton(panel, assemblyPath,
+                "ElbowAdapterButton",
+                "엘보 어댑터\n생성기",
+                "FBXtoRVT.Commands.ElbowAdapterCommand",
+                "양쪽이 연결된 엘보 조립품에서, 배관 쪽 ADAPTOR 파라미터를 켭니다.",
+                "패밀리명에 'ASSEMBLY_ELBOW_ADPT_LOT-FLON' 이 포함된 엘보 조립품 중, End 커넥터가 " +
+                "2개이고 둘 다 연결되어 있는 것만 대상으로 합니다. 엘보 중심점에서 가장 가까운 SCR 장비 " +
+                "(패밀리명에 'SCRUBBER' 포함)를 그 엘보의 기준 장비로 삼고, 두 커넥터 중 그 장비 " +
+                "중심점에서 더 먼 쪽을 고릅니다. 그 먼 쪽 커넥터가 배관과 연결되어 있으면, 해당 커넥터 " +
+                "쪽 ADAPTOR 파라미터('ADAPTOR_상' 또는 'ADAPTOR_하')를 체크합니다. 이 패밀리는 " +
+                "Primary 커넥터가 '상' 쪽이므로, 먼 쪽이 Primary 면 'ADAPTOR_상' 을 켭니다. " +
+                "CLAMP 파라미터는 건드리지 않습니다.",
+                "어", Colors.DarkGoldenrod);
+
+            AddButton(panel, assemblyPath,
                 "OverlapSelectButton",
                 "겹침 객체\n선택",
                 "FBXtoRVT.Commands.OverlapSelectCommand",

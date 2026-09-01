@@ -501,19 +501,43 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
+        /// 그 이름의 YES/NO 인스턴스 파라미터가 있고 값을 쓸 수 있는지 검사.
+        ///
+        /// 파라미터 이름이 한 글자라도 다르면 Revit 은 오류 없이 그냥 못 찾는다.
+        /// "아무 일도 일어나지 않는" 상황과 "이미 그 값이었다" 를 구분하려면 이 검사가 필요하다.
+        /// </summary>
+        public static bool HasWritableYesNoParam(Element e, string paramName)
+        {
+            if (e == null || paramName == null) return false;
+
+            Parameter p = e.LookupParameter(paramName);
+            return p != null && p.StorageType == StorageType.Integer && !p.IsReadOnly;
+        }
+
+        /// <summary>
+        /// YES/NO 인스턴스 파라미터를 켜거나(1) 끈다(0).
+        /// 실제로 값을 바꿨으면 true, 파라미터가 없거나 읽기전용이거나 이미 같은 값이면 false.
+        /// </summary>
+        public static bool SetYesNoParam(Element e, string paramName, bool on)
+        {
+            if (!HasWritableYesNoParam(e, paramName)) return false;
+
+            Parameter p = e.LookupParameter(paramName);
+            int value = on ? 1 : 0;
+
+            if (p.AsInteger() == value) return false; // 이미 같은 값
+
+            p.Set(value);
+            return true;
+        }
+
+        /// <summary>
         /// YES/NO 인스턴스 파라미터를 NO(0)로 해제.
         /// 실제로 값을 바꿨으면 true, 파라미터가 없거나 이미 0이면 false.
         /// </summary>
         public static bool UncheckYesNoParam(Element e, string paramName)
         {
-            Parameter p = e.LookupParameter(paramName);
-            if (p == null) return false;
-            if (p.StorageType != StorageType.Integer) return false;
-            if (p.IsReadOnly) return false;
-            if (p.AsInteger() == 0) return false; // 이미 해제됨
-
-            p.Set(0);
-            return true;
+            return SetYesNoParam(e, paramName, false);
         }
     }
 }

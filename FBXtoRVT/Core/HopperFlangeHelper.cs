@@ -17,7 +17,7 @@ namespace FBXtoRVT.Core
     ///     (HOPPER 커넥터가 50A / 75A 처럼 서로 다르면 복사하지 않는다)
     ///  3) 플랜지의 커넥터 중 HOPPER 에 가까운 쪽이 Primary 커넥터인지 조사하고,
     ///     <b>지금 붙이는 커넥터 쪽 플랜지를 해제한다.</b>
-    ///     그 커넥터가 상인지 하인지는 패밀리마다 다르므로 <see cref="FlangeSideTable"/> 의 표를 본다.
+    ///     그 커넥터가 상인지 하인지는 패밀리마다 다르므로 <see cref="PartSideTable"/> 의 표를 본다.
     ///     (표에 없는 패밀리와 BLIND FLANGE 는 파라미터를 건드리지 않는다)
     ///
     ///  4) HOPPER 의 Primary 가 아닌 커넥터를 위에서 조사한 플랜지 커넥터에 연결한다.
@@ -168,19 +168,25 @@ namespace FBXtoRVT.Core
             int flangeConnId = nearConn.Id;
             bool isPrimary = ElementUtils.IsPrimaryConnector(nearConn);
 
-            // 3) 지금 붙이는 커넥터 쪽 플랜지를 해제한다. (상/하 판단은 패밀리별 표가 한다)
-            string paramToUncheck = FlangeSideTable.GetParamToUncheck(targetFlange, isPrimary);
+            // 3) 지금 붙이는 커넥터 쪽 형상을 해제한다. (상/하 판단은 패밀리별 표가 한다)
+            List<string> paramsToUncheck = PartSideTable.GetParamsToUncheck(targetFlange, isPrimary);
 
             if (LogUtils.DetailEnabled)
                 LogUtils.LogDetail($"HOPPER(Id={hopperId}) FLANGE(Id={targetFlangeId}) " +
-                    $"Primary쪽={FlangeSideTable.GetPrimarySide(targetFlange)} " +
-                    $"nearConnId={flangeConnId} isPrimary={isPrimary} paramToUncheck={paramToUncheck ?? "(없음)"}");
+                    $"Primary쪽={PartSideTable.GetPrimarySide(targetFlange)} " +
+                    $"nearConnId={flangeConnId} isPrimary={isPrimary} " +
+                    $"해제파라미터={(paramsToUncheck.Count == 0 ? "(없음)" : string.Join(", ", paramsToUncheck))}");
 
-            if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(targetFlange, paramToUncheck))
+            bool anyUnchecked = false;
+            foreach (string paramName in paramsToUncheck)
             {
+                if (!ElementUtils.UncheckYesNoParam(targetFlange, paramName)) continue;
+
                 result.ParamUncheckedCount++;
-                doc.Regenerate(); // 형상이 바뀌므로 커넥터를 다시 조회해야 한다
+                anyUnchecked = true;
             }
+
+            if (anyUnchecked) doc.Regenerate(); // 형상이 바뀌므로 커넥터를 다시 조회해야 한다
 
             // 4) 파라미터 변경 뒤 커넥터를 다시 조회 (Id 가 사라졌으면 다시 가까운 것으로 대체)
             Connector flangeConn = ElementUtils.ResolveConnector(doc, targetFlangeId, flangeConnId);

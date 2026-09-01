@@ -22,13 +22,13 @@ namespace FBXtoRVT.Core
     ///     그 커넥터를 그 부품의 대상 커넥터로 인식한다.
     ///  4) 부품의 열린 커넥터 개수에 따라 파라미터를 해제하고, 부품을 이동/회전시켜 연결한다.
     ///
-    ///  FLANGE — 어느 커넥터를 쓸지만 정하고, 해제할 파라미터는 <see cref="FlangeSideTable"/> 이 정한다.
+    ///  FLANGE — 어느 커넥터를 쓸지만 정하고, 해제할 파라미터는 <see cref="PartSideTable"/> 이 정한다.
     ///   - 열린 커넥터 2개                : Primary 커넥터를 대상 커넥터에 연결
     ///   - 열린 커넥터 1개(Primary)       : 위와 동일
     ///   - 열린 커넥터 1개(Primary 아님)  : 그 열린 커넥터를 대상 커넥터에 연결
     ///
     ///  해제 규칙은 "지금 붙이는 커넥터 쪽 플랜지를 해제한다" 하나뿐이다.
-    ///  그 커넥터가 상인지 하인지는 패밀리마다 다르므로 <see cref="FlangeSideTable"/> 의 표를 본다.
+    ///  그 커넥터가 상인지 하인지는 패밀리마다 다르므로 <see cref="PartSideTable"/> 의 표를 본다.
     ///
     ///  NUT (파라미터 해제 없음)
     ///   - 열린 커넥터 2개 : Primary 커넥터를 대상 커넥터에 연결
@@ -218,9 +218,9 @@ namespace FBXtoRVT.Core
             }
 
             // 해제할 파라미터는 패밀리별 표가 정한다. (NUT 은 해제하지 않는다)
-            string paramToUncheck = isFlange
-                ? FlangeSideTable.GetParamToUncheck(part, usePrimary)
-                : null;
+            List<string> paramsToUncheck = isFlange
+                ? PartSideTable.GetParamsToUncheck(part, usePrimary)
+                : new List<string>();
 
             if (isFlange) result.FlangeTargetCount++;
             else result.NutTargetCount++;
@@ -228,15 +228,21 @@ namespace FBXtoRVT.Core
             if (LogUtils.DetailEnabled)
                 LogUtils.LogDetail($"부품(Id={partId}, Family={ElementUtils.GetFamilyName(part)}) " +
                     $"열린커넥터={openConns.Count} Primary사용={usePrimary} " +
-                    $"Primary쪽={FlangeSideTable.GetPrimarySide(part)} 해제파라미터={paramToUncheck ?? "(없음)"} " +
+                    $"Primary쪽={PartSideTable.GetPrimarySide(part)} " +
+                    $"해제파라미터={(paramsToUncheck.Count == 0 ? "(없음)" : string.Join(", ", paramsToUncheck))} " +
                     $"대상 장비커넥터={target.Key}");
 
             // 3) 파라미터 해제 (형상이 바뀌므로 이후 커넥터는 다시 조회한다)
-            if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(part, paramToUncheck))
+            bool anyUnchecked = false;
+            foreach (string paramName in paramsToUncheck)
             {
+                if (!ElementUtils.UncheckYesNoParam(part, paramName)) continue;
+
                 result.ParamUncheckedCount++;
-                doc.Regenerate();
+                anyUnchecked = true;
             }
+
+            if (anyUnchecked) doc.Regenerate();
 
             // 4) 실제로 연결할 커넥터를 다시 조회
             Connector subConn = usePrimary
