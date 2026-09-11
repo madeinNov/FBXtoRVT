@@ -85,8 +85,13 @@ namespace FBXtoRVT.Core
             XYZ connOrigin = targetConn.Origin;
             XYZ outward = targetConn.CoordinateSystem.BasisZ.Normalize(); // 배관 바깥으로 나가는 방향
 
-            // 나중에 되돌리기 위해 클릭한 배관의 원래 중심선을 기억해 둔다.
+            // 나중에 되돌리기 위해 클릭한 배관의 원래 양 끝점을 기억해 둔다.
+            // ※ Line 객체 자체를 들고 있으면 안 된다. LocationCurve 에서 얻은 Line 은 Revit 내부
+            //    형상에 묶여 있어서, 아래 SubTransaction 롤백 뒤에는 무효가 되어 끝점을 읽을 때 예외가 난다.
+            //    그래서 끝점 좌표(XYZ)만 복사해 둔다. (XYZ 는 단순한 값이라 문서가 바뀌어도 그대로다)
             Line originalLine = GetPipeLine(pipe);
+            XYZ originalStart = originalLine.GetEndPoint(0);
+            XYZ originalEnd = originalLine.GetEndPoint(1);
 
             // ===== 2) 입력값 검사 =====
             double sourceDiameter = pipe.Diameter;                       // 클릭한 배관의 ND (feet)
@@ -196,7 +201,7 @@ namespace FBXtoRVT.Core
             result.ReducerLengthMm = FeetToMm(outcome.ReducerLengthFeet);
 
             // ===== 5) 안전장치: 클릭한 배관의 끝점이 움직였으면 되돌린다 =====
-            result.PipeEndRestored = RestorePipeLineIfMoved(doc, pipeId, originalLine);
+            result.PipeEndRestored = RestorePipeLineIfMoved(doc, pipeId, originalStart, originalEnd);
 
             LogUtils.Log($"===== Reducer 생성기 종료. 리듀서 Id={result.ReducerId} " +
                 $"새배관 Id={result.NewPipeId} 리듀서길이={result.ReducerLengthMm:F1}mm " +
@@ -424,10 +429,12 @@ namespace FBXtoRVT.Core
         /// 리듀서를 넣는 과정에서 클릭한 배관의 중심선이 바뀌었으면 원래대로 되돌린다.
         /// (배관 끝을 되돌리면 거기에 붙어 있는 리듀서와 새 배관이 함께 따라 움직인다)
         /// </summary>
+        /// <param name="originalStart">처음에 복사해 둔 배관 시작점</param>
+        /// <param name="originalEnd">처음에 복사해 둔 배관 끝점</param>
         /// <returns>실제로 되돌렸으면 true</returns>
-        private static bool RestorePipeLineIfMoved(Document doc, ElementId pipeId, Line originalLine)
+        private static bool RestorePipeLineIfMoved(Document doc, ElementId pipeId, XYZ originalStart, XYZ originalEnd)
         {
-            if (originalLine == null) return false;
+            if (originalStart == null || originalEnd == null) return false;
 
             var pipe = doc.GetElement(pipeId) as Pipe;
             if (pipe == null) return false;
@@ -436,14 +443,22 @@ namespace FBXtoRVT.Core
             Line currentLine = (lc != null) ? lc.Curve as Line : null;
             if (currentLine == null) return false;
 
-            bool sameStart = currentLine.GetEndPoint(0).DistanceTo(originalLine.GetEndPoint(0)) < ToleranceFeet;
-            bool sameEnd = currentLine.GetEndPoint(1).DistanceTo(originalLine.GetEndPoint(1)) < ToleranceFeet;
+            // 지금 끝점은 문서에서 새로 읽은 것이므로 바로 값으로 꺼내 둔다.
+            XYZ currentStart = currentLine.GetEndPoint(0);
+            XYZ currentEnd = currentLine.GetEndPoint(1);
+
+            bool sameStart = currentStart.DistanceTo(originalStart) < ToleranceFeet;
+            bool sameEnd = currentEnd.DistanceTo(originalEnd) < ToleranceFeet;
 
             if (sameStart && sameEnd) return false;   // 안 움직였으면 그대로 둔다
 
+            LogUtils.Log($"  클릭한 배관(Id={pipeId}) 끝점 변화: " +
+                $"{FormatXyz(originalStart)}->{FormatXyz(currentStart)} / {FormatXyz(originalEnd)}->{FormatXyz(currentEnd)}");
+
             try
             {
-                lc.Curve = originalLine;
+                // 복사해 둔 좌표로 중심선을 새로 만들어 넣는다.
+                lc.Curve = Line.CreateBound(originalStart, originalEnd);
                 doc.Regenerate();
 
                 LogUtils.Log($"  클릭한 배관(Id={pipeId})의 끝점이 움직여서 원래 위치로 되돌렸습니다.");
