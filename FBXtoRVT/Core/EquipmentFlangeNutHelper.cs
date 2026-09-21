@@ -5,10 +5,9 @@ using Autodesk.Revit.DB;
 namespace FBXtoRVT.Core
 {
     /// <summary>
-    /// "플랜지/NUT/VCR" 과 "SCR장비&amp;플랜지/NUT" 두 기능이 함께 쓰는 핵심 로직.
-    /// 두 기능은 <b>장비 범위만 다르고 부품 처리 규칙은 완전히 같다.</b>
-    ///   - 플랜지/NUT/VCR      : Mechanical Equipment 카테고리 전체 (Run 의 keyword = null)
-    ///   - SCR장비&amp;플랜지/NUT : 패밀리명에 'SCRUBBER' 가 들어간 장비만 (Run 의 keyword = "SCRUBBER")
+    /// "장비&amp;플랜지 등" 기능의 핵심 로직. (예전 이름: 플랜지/NUT/VCR)
+    /// 대상 장비는 Mechanical Equipment 카테고리 전체다. (SCR 장비도 여기에 포함되므로
+    /// 예전의 "SCR장비&amp;플랜지/NUT" 기능은 이 기능으로 흡수하고 삭제했다)
     ///
     /// 처리 흐름 (장비 1대 기준)
     ///  1) 장비의 바운딩 박스(모든 방향 +20mm)와 열린 커넥터를 모은다.
@@ -88,9 +87,8 @@ namespace FBXtoRVT.Core
 
             /// <summary>
             /// 결과 대화상자에 보여줄 요약 문구를 만든다.
-            /// (플랜지/NUT/VCR 과 SCR장비&amp;플랜지/NUT 이 같은 형식으로 보여주기 위해 한 곳에 둔다)
             /// </summary>
-            /// <param name="equipmentLabel">장비를 부르는 이름. 예: "장비(Mechanical Equipment)" / "SCRUBBER"</param>
+            /// <param name="equipmentLabel">장비를 부르는 이름. 예: "장비(Mechanical Equipment)"</param>
             public string BuildSummary(string equipmentLabel)
             {
                 string summary =
@@ -138,24 +136,15 @@ namespace FBXtoRVT.Core
         /// <summary>
         /// 메인 실행. (외부에서 Transaction 을 열고 호출해야 함)
         /// </summary>
-        /// <param name="equipmentFamilyKeyword">
-        /// 장비를 고르는 기준. null 이면 Mechanical Equipment 카테고리 전체,
-        /// 값을 주면(예: "SCRUBBER") 패밀리명에 그 글자가 들어간 장비만 대상으로 한다.
-        /// 장비 범위만 다르고 부품 처리 규칙은 완전히 같다.
-        /// </param>
-        public static RunResult Run(Document doc, View view, string equipmentFamilyKeyword = null)
+        public static RunResult Run(Document doc, View view)
         {
             var result = new RunResult();
 
             double expandFeet = ElementUtils.MmToFeet(EquipBoxExpandMm);
 
             // 처리 도중 부품이 이동하므로, 장비는 Id 목록으로 먼저 확정해 둔다.
-            IEnumerable<FamilyInstance> equipments = (equipmentFamilyKeyword == null)
-                ? ElementUtils.CollectFamilyInstancesByCategory(doc, view, BuiltInCategory.OST_MechanicalEquipment)
-                : ElementUtils.CollectFamilyInstances(doc, view, equipmentFamilyKeyword);
-
             var equipIds = new List<ElementId>();
-            foreach (FamilyInstance fi in equipments)
+            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstancesByCategory(doc, view, BuiltInCategory.OST_MechanicalEquipment))
             {
                 equipIds.Add(fi.Id);
             }

@@ -22,7 +22,8 @@ namespace FBXtoRVT.Core
     ///     지름은 커넥터 지름, System Type 은 직선배관을 따라간다.
     ///  2) 두 배관을 하나의 직선배관으로 합친다. <b>긴 배관이 남고 짧은 배관이 지워진다.</b>
     ///     (긴 배관을 짧은 배관의 반대쪽 끝까지 늘린다. 짧은 배관 반대쪽에 붙어 있던 객체는 다시 붙인다)
-    ///  3) 캡(1커넥터 피팅)을 두 33mm 배관 중 캡에 가까운 쪽 끝에 이동·회전시켜 붙인다.
+    ///  3) 캡(1커넥터 피팅)의 규격(ND1)을 붙을 배관의 ND 와 같게 맞춘 뒤,
+    ///     두 33mm 배관 중 캡에 가까운 쪽 끝에 이동·회전시켜 붙인다.
     ///  4) 피팅 + 33mm 배관 2개 + 캡을 <b>한 덩어리로</b> 돌려서, 캡이 없는 쪽 커넥터가 직선배관을 향하게 한다.
     ///     (피팅 중심에서 직선배관에 내린 수선 방향으로 맞춘다. 이미 향해 있으면 돌리지 않는다)
     ///  5) 캡이 없는 쪽 33mm 배관의 끝을 직선배관 중심선까지 늘리고 <b>탭(Takeoff)</b> 으로 붙인다.
@@ -40,6 +41,9 @@ namespace FBXtoRVT.Core
 
         // 피팅 커넥터에서 만드는 배관 길이 (mm)
         private const double BranchPipeLengthMm = 33.0;
+
+        // 캡(1커넥터 피팅)의 규격(ND)을 정하는 인스턴스 파라미터 이름
+        private const string CapSizeParamName = "ND1";
 
         // 패밀리명 마지막 단어로 허용하는 배관 타입 이름 (정확히 일치해야 한다)
         private static readonly string[] AllowedPipeTypeNames = { "STS316L BA", "STS316L EP" };
@@ -644,18 +648,81 @@ namespace FBXtoRVT.Core
                     return null;
                 }
 
-                // 캡이 움직여서 배관 끝에 붙는다.
-                ConnectorHelper.AlignAndConnect(doc, bestConn, capConns[0], capId);
+                ElementId targetBranchId = bestBranchId;
+                int branchConnId = bestConn.Id;
+                int capConnId = capConns[0].Id;
+
+                // 캡의 규격(ND1)을 붙을 배관의 ND 와 같게 맞춘다.
+                // 규격이 바뀌면 캡의 형상과 커넥터 위치가 바뀌므로, 붙이기 "전에" 맞추고
+                // 커넥터를 다시 찾아서 붙여야 정확한 자리에 놓인다.
+                SetCapSizeToPipe(doc, capId, targetBranchId);
                 doc.Regenerate();
 
-                LogUtils.Log($"  캡(Id={capId})을 33mm 배관(Id={bestBranchId}) 끝에 붙였습니다.");
-                return bestBranchId;
+                Connector branchConn = ElementUtils.ResolveConnector(doc, targetBranchId, branchConnId);
+                Connector capConn = ElementUtils.ResolveConnector(doc, capId, capConnId);
+                if (branchConn == null || capConn == null)
+                {
+                    LogUtils.Log("  규격을 맞춘 뒤 커넥터를 다시 찾지 못해 캡 단계를 건너뜁니다.");
+                    return null;
+                }
+
+                // 캡이 움직여서 배관 끝에 붙는다.
+                ConnectorHelper.AlignAndConnect(doc, branchConn, capConn, capId);
+                doc.Regenerate();
+
+                LogUtils.Log($"  캡(Id={capId})을 33mm 배관(Id={targetBranchId}) 끝에 붙였습니다.");
+                return targetBranchId;
             }
             catch (Exception ex)
             {
                 LogUtils.LogError(ex, $"캡(Id={capId}) 붙이기 실패. (캡 단계 건너뜀)");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 캡의 규격 파라미터(ND1)를 붙을 배관의 Nominal Diameter 와 같게 맞춘다.
+        ///
+        /// 패밀리 인스턴스의 커넥터 크기는 API 로 직접 바꿀 수 없고, 커넥터 크기를 정하는
+        /// 패밀리 파라미터(여기서는 "ND1")를 바꿔야 형상과 커넥터가 함께 바뀐다.
+        /// ND1 이 인스턴스 파라미터가 아니거나(타입 파라미터), 길이(Double) 형식이 아니면
+        /// 값을 바꾸지 않고 로그만 남긴다. (타입 파라미터를 바꾸면 같은 타입의 다른 캡까지 바뀌기 때문)
+        /// </summary>
+        private static void SetCapSizeToPipe(Document doc, ElementId capId, ElementId branchPipeId)
+        {
+            Element cap = doc.GetElement(capId);
+            var branch = doc.GetElement(branchPipeId) as Pipe;
+            if (cap == null || branch == null) return;
+
+            double pipeNd = branch.Diameter;   // 배관의 Nominal Diameter (feet)
+            double pipeNdMm = UnitUtils.ConvertFromInternalUnits(pipeNd, UnitTypeId.Millimeters);
+
+            Parameter ndParam = cap.LookupParameter(CapSizeParamName);
+            if (ndParam == null)
+            {
+                bool isTypeParam = cap is FamilyInstance fi && fi.Symbol != null
+                    && fi.Symbol.LookupParameter(CapSizeParamName) != null;
+
+                LogUtils.Log(isTypeParam
+                    ? $"  캡(Id={capId})의 '{CapSizeParamName}' 은 타입 파라미터라 값을 바꾸지 않습니다. (인스턴스 파라미터여야 함)"
+                    : $"  캡(Id={capId})에 '{CapSizeParamName}' 파라미터가 없어 규격을 맞추지 않습니다.");
+                return;
+            }
+
+            if (ndParam.IsReadOnly || ndParam.StorageType != StorageType.Double)
+            {
+                LogUtils.Log($"  캡(Id={capId})의 '{CapSizeParamName}' 이 읽기전용이거나 길이 형식이 아니라({ndParam.StorageType}) 규격을 맞추지 않습니다.");
+                return;
+            }
+
+            if (Math.Abs(ndParam.AsDouble() - pipeNd) < PositionTolerance)
+            {
+                LogUtils.Log($"  캡(Id={capId}) 규격이 이미 {pipeNdMm:F0}mm 라 그대로 둡니다.");
+                return;
+            }
+
+            ndParam.Set(pipeNd);
+            LogUtils.Log($"  캡(Id={capId}) '{CapSizeParamName}' 을 {pipeNdMm:F0}mm 로 맞췄습니다.");
         }
 
         /// <summary>

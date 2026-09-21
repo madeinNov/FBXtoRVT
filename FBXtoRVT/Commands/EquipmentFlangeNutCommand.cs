@@ -7,16 +7,15 @@ using FBXtoRVT.Core;
 namespace FBXtoRVT.Commands
 {
     /// <summary>
-    /// "플랜지/NUT/VCR" 버튼이 실행하는 명령. (예전 이름: 장비&amp;플랜지/NUT)
+    /// "장비&amp;플랜지 등" 버튼이 실행하는 명령. (예전 이름: 플랜지/NUT/VCR, 장비&amp;플랜지/NUT)
     /// 조건: 1) 현재 열린 Document 2) 현재 View 에 전시된 객체
-    /// ScrubberFlangeCommand 와 동일하되, 대상이 'SCRUBBER' 가 아니라 Mechanical Equipment 전체이고,
-    /// FLANGE / NUT 에 더해 VCR 부품(Primary 가 장비쪽)도 붙인다.
+    /// Mechanical Equipment 전체(SCR 장비 포함)를 대상으로 FLANGE / NUT / VCR 부품을 장비 커넥터에 붙인다.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     public class EquipmentFlangeNutCommand : IExternalCommand
     {
         // 대화상자 제목
-        private const string FeatureTitle = "플랜지/NUT/VCR";
+        private const string FeatureTitle = "장비&플랜지 등";
 
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
@@ -42,7 +41,7 @@ namespace FBXtoRVT.Commands
                 // 2) 트랜잭션 안에서 실행 (부품 이동/연결)
                 EquipmentFlangeNutHelper.RunResult runResult;
 
-                using (Transaction tx = new Transaction(doc, "플랜지/NUT/VCR 연결"))
+                using (Transaction tx = new Transaction(doc, "장비&플랜지 등 연결"))
                 {
                     tx.Start();
                     runResult = EquipmentFlangeNutHelper.Run(doc, activeView);

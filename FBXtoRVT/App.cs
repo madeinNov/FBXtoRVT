@@ -95,19 +95,8 @@ namespace FBXtoRVT
         {
             RibbonPanel panel = application.CreateRibbonPanel(TabName, "2.SCR");
 
-            AddButton(panel, assemblyPath,
-                "ScrubberFlangeButton",
-                "SCR장비&\n플랜지/NUT",
-                "FBXtoRVT.Commands.ScrubberFlangeCommand",
-                "SCRUBBER 장비 안의 FLANGE / NUT / VCR 을 장비의 열린 커넥터에 연결합니다.",
-                "'플랜지/NUT/VCR' 과 완전히 같은 규칙이되, 대상 장비만 패밀리명에 'SCRUBBER' 가 포함된 " +
-                "것으로 제한합니다. 장비의 바운딩 박스를 모든 방향으로 20mm 확장한 뒤 그 안에서 " +
-                "'FLANGE' / 'NUT' / 'VCR' 부품을 찾고, 부품 바운딩 박스 안에 장비의 열린 커넥터가 정확히 " +
-                "1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 파라미터 변경이나 Primary 구분 " +
-                "없이 열린 커넥터 중 장비 커넥터에 가장 가까운 것을 연결하고, NUT 은 열린 커넥터 2개면 " +
-                "Primary, 1개면 그 커넥터를 연결합니다. VCR 은 항상 Primary 를 장비쪽에 붙이며, 이미 다른 " +
-                "객체에 붙어 있으면 떼어서 장비에 붙인 뒤 그 객체를 반대쪽에 다시 붙입니다. (부품이 이동·회전)",
-                "S", Colors.DarkSlateBlue);
+            // "SCR장비&플랜지/NUT" 은 삭제했다. SCR 장비도 Mechanical Equipment 이므로
+            // 공용(연결) 패널의 "장비&플랜지 등" 이 그대로 처리한다.
 
             AddButton(panel, assemblyPath,
                 "ElbowAdapterButton",
@@ -171,9 +160,9 @@ namespace FBXtoRVT
 
             AddButton(panel, assemblyPath,
                 "EquipmentFlangeNutButton",
-                "플랜지/\nNUT/VCR",
+                "장비&\n플랜지 등",
                 "FBXtoRVT.Commands.EquipmentFlangeNutCommand",
-                "Mechanical Equipment 안의 FLANGE / NUT / VCR 을 장비의 열린 커넥터에 연결합니다.",
+                "Mechanical Equipment 안의 FLANGE / NUT / VCR 을 장비의 열린 커넥터에 연결합니다. (SCR 장비 포함)",
                 "대상은 Mechanical Equipment 카테고리 전체입니다. 장비의 바운딩 박스를 모든 방향으로 20mm " +
                 "확장한 뒤 그 안에서 'FLANGE' / 'NUT' / 'VCR' 부품을 찾고, 부품 바운딩 박스 안에 장비의 " +
                 "열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 파라미터 " +
@@ -273,7 +262,7 @@ namespace FBXtoRVT
                 "① 피팅 커넥터 2개에서 각각 33mm 배관 생성(배관 타입은 피팅 패밀리명을 '_'로 나눈 마지막 단어 " +
                 "STS316L BA / STS316L EP, 지름은 커넥터, System Type 은 직선배관). " +
                 "② 두 배관을 하나로 합침(긴 배관이 남고 짧은 배관은 삭제, 긴 배관을 짧은 배관 반대쪽 끝까지 연장). " +
-                "③ 캡을 캡에 가까운 쪽 33mm 배관 끝에 이동·회전시켜 연결. " +
+                "③ 캡의 규격(ND1)을 배관 ND 와 같게 맞춘 뒤, 캡에 가까운 쪽 33mm 배관 끝에 이동·회전시켜 연결. " +
                 "④ 피팅 + 33mm 배관 2개 + 캡을 한 덩어리로 돌려 캡 없는 쪽 커넥터가 직선배관을 향하게 함(이미 향해 있으면 그대로). " +
                 "⑤ 캡 없는 쪽 33mm 배관을 직선배관까지 늘려 탭(Takeoff)으로 연결. " +
                 "어느 단계가 불가능해도 그 전 단계까지는 남깁니다. 결과창은 띄우지 않습니다. (로그 파일 참고)",
