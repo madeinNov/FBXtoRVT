@@ -5,25 +5,22 @@ using Autodesk.Revit.DB;
 namespace FBXtoRVT.Core
 {
     /// <summary>
-    /// "플랜지/NUT/VCR" 기능의 핵심 로직. (예전 이름: 장비&amp;플랜지/NUT)
-    /// ScrubberFlangeHelper 와 동일한 규칙이되, 대상이 'SCRUBBER' 패밀리가 아니라
-    /// Mechanical Equipment 카테고리 전체이고, 장비 바운딩 박스를 모든 방향으로 20mm 확장해서 쓴다.
+    /// "플랜지/NUT/VCR" 과 "SCR장비&amp;플랜지/NUT" 두 기능이 함께 쓰는 핵심 로직.
+    /// 두 기능은 <b>장비 범위만 다르고 부품 처리 규칙은 완전히 같다.</b>
+    ///   - 플랜지/NUT/VCR      : Mechanical Equipment 카테고리 전체 (Run 의 keyword = null)
+    ///   - SCR장비&amp;플랜지/NUT : 패밀리명에 'SCRUBBER' 가 들어간 장비만 (Run 의 keyword = "SCRUBBER")
     ///
     /// 처리 흐름 (장비 1대 기준)
-    ///  1) Mechanical Equipment 카테고리 객체의 바운딩 박스(모든 방향 +20mm)와 열린 커넥터를 모은다.
+    ///  1) 장비의 바운딩 박스(모든 방향 +20mm)와 열린 커넥터를 모은다.
     ///  2) 그 박스 안에 중심점이 들어가는 부품(FLANGE / NUT / VCR)을 모으고, 부품별 바운딩 박스를 구한다.
     ///  3) 부품 바운딩 박스 안에 장비의 열린 커넥터가 "정확히 1개" 들어있으면,
     ///     그 커넥터를 그 부품의 대상 커넥터로 인식한다.
-    ///  4) 부품 종류와 열린 커넥터 개수에 따라 파라미터를 해제하고, 부품을 이동/회전시켜 연결한다.
+    ///  4) 부품 종류와 열린 커넥터 개수에 따라 커넥터를 고르고, 부품을 이동/회전시켜 연결한다.
     ///
-    ///  FLANGE
-    ///   - 열린 커넥터 2개      : "FLANGE 하" 해제 후 Primary 커넥터를 대상 커넥터에 연결
-    ///   - 열린 커넥터 1개(Primary)      : 위와 동일
-    ///   - 열린 커넥터 1개(Primary 아님)  : "FLANGE 상" 해제 후 그 열린 커넥터를 대상 커넥터에 연결
-    ///
-    ///  FLANGE 중 이름(패밀리명 또는 타입명)에 "BELLOWS" 가 들어간 것은 상/하가 반대다.
-    ///   - Primary      : "FLANGE 상" 해제
-    ///   - Primary 아님  : "FLANGE 하" 해제
+    ///  FLANGE (파라미터 해제 없음. Primary 구분도 하지 않는다)
+    ///   - 열린 커넥터 중 <b>장비 커넥터에 가장 가까운 것</b>을 대상 커넥터에 연결
+    ///     (예전에는 "FLANGE 상/하" 파라미터를 해제하고 Primary 여부로 커넥터를 골랐지만,
+    ///      지금은 그 규칙을 모두 없애고 가까운 커넥터를 그대로 붙인다)
     ///
     ///  NUT (파라미터 해제 없음)
     ///   - 열린 커넥터 2개 : Primary 커넥터를 대상 커넥터에 연결
@@ -43,7 +40,7 @@ namespace FBXtoRVT.Core
         /// </summary>
         public enum PartKind
         {
-            Flange,   // FLANGE: 파라미터 해제 + Primary/열린 커넥터
+            Flange,   // FLANGE: 파라미터 해제 없음 + 장비 커넥터에 가장 가까운 열린 커넥터
             Nut,      // NUT   : 파라미터 해제 없음 + Primary/열린 커넥터
             Vcr       // VCR   : 파라미터 해제 없음 + 항상 Primary
         }
@@ -52,13 +49,6 @@ namespace FBXtoRVT.Core
         private const string FlangeFamilyKeyword = "FLANGE";
         private const string NutFamilyKeyword = "NUT";
         private const string VcrFamilyKeyword = "VCR";
-
-        // 상/하 해제 규칙이 반대가 되는 부품 이름 키워드
-        private const string BellowsKeyword = "BELLOWS";
-
-        // 해제 대상 YES/NO 인스턴스 파라미터 이름
-        private const string ParamFlangeLower = "FLANGE 하";
-        private const string ParamFlangeUpper = "FLANGE 상";
 
         // 장비 바운딩 박스 확장량(mm). 모든 방향(X/Y/Z 앞뒤)으로 이만큼 키운다.
         private const double EquipBoxExpandMm = 20.0;
@@ -81,7 +71,6 @@ namespace FBXtoRVT.Core
         public class RunResult
         {
             public int EquipmentCount;                       // 찾은 장비 수
-            public int ParamUncheckedCount;                  // 실제로 해제한 파라미터 수
             public PartCount Flange = new PartCount();       // FLANGE 집계
             public PartCount Nut = new PartCount();          // NUT 집계
             public PartCount Vcr = new PartCount();          // VCR 집계
@@ -95,6 +84,37 @@ namespace FBXtoRVT.Core
                     case PartKind.Nut: return Nut;
                     default: return Vcr;
                 }
+            }
+
+            /// <summary>
+            /// 결과 대화상자에 보여줄 요약 문구를 만든다.
+            /// (플랜지/NUT/VCR 과 SCR장비&amp;플랜지/NUT 이 같은 형식으로 보여주기 위해 한 곳에 둔다)
+            /// </summary>
+            /// <param name="equipmentLabel">장비를 부르는 이름. 예: "장비(Mechanical Equipment)" / "SCRUBBER"</param>
+            public string BuildSummary(string equipmentLabel)
+            {
+                string summary =
+                    $"{equipmentLabel}: {EquipmentCount}대\n\n" +
+                    FormatPartLine("FLANGE", Flange) + "\n" +
+                    FormatPartLine("NUT", Nut) + "\n" +
+                    FormatPartLine("VCR", Vcr);
+
+                // VCR 의 Primary 가 다른 곳에 붙어 있어서 떼었다 다시 붙인 경우가 있으면 알려준다
+                int reattachTotal = Vcr.ReattachedCount + Vcr.ReattachFailedCount;
+                if (reattachTotal > 0)
+                {
+                    summary += $"\n  └ 반대쪽 다시 붙임: {Vcr.ReattachedCount}개 / " +
+                               $"실패: {Vcr.ReattachFailedCount}개";
+                }
+
+                return summary;
+            }
+
+            /// <summary>부품 종류 하나의 집계를 한 줄로 만든다.</summary>
+            private static string FormatPartLine(string label, PartCount c)
+            {
+                return $"{label} - 대상 인식: {c.TargetCount}개 / " +
+                       $"연결 성공: {c.ConnectedCount}개 / 실패: {c.FailedCount}개";
             }
         }
 
@@ -118,15 +138,24 @@ namespace FBXtoRVT.Core
         /// <summary>
         /// 메인 실행. (외부에서 Transaction 을 열고 호출해야 함)
         /// </summary>
-        public static RunResult Run(Document doc, View view)
+        /// <param name="equipmentFamilyKeyword">
+        /// 장비를 고르는 기준. null 이면 Mechanical Equipment 카테고리 전체,
+        /// 값을 주면(예: "SCRUBBER") 패밀리명에 그 글자가 들어간 장비만 대상으로 한다.
+        /// 장비 범위만 다르고 부품 처리 규칙은 완전히 같다.
+        /// </param>
+        public static RunResult Run(Document doc, View view, string equipmentFamilyKeyword = null)
         {
             var result = new RunResult();
 
             double expandFeet = ElementUtils.MmToFeet(EquipBoxExpandMm);
 
             // 처리 도중 부품이 이동하므로, 장비는 Id 목록으로 먼저 확정해 둔다.
+            IEnumerable<FamilyInstance> equipments = (equipmentFamilyKeyword == null)
+                ? ElementUtils.CollectFamilyInstancesByCategory(doc, view, BuiltInCategory.OST_MechanicalEquipment)
+                : ElementUtils.CollectFamilyInstances(doc, view, equipmentFamilyKeyword);
+
             var equipIds = new List<ElementId>();
-            foreach (FamilyInstance fi in ElementUtils.CollectFamilyInstancesByCategory(doc, view, BuiltInCategory.OST_MechanicalEquipment))
+            foreach (FamilyInstance fi in equipments)
             {
                 equipIds.Add(fi.Id);
             }
@@ -236,7 +265,6 @@ namespace FBXtoRVT.Core
             // 2) 부품 종류와 열린 커넥터 개수에 따라 처리 방법 결정
             List<Connector> openConns = ElementUtils.GetOpenEndConnectors(part);
 
-            string paramToUncheck = null; // 해제할 파라미터 (NUT / VCR 은 없음)
             bool usePrimary;              // Primary 커넥터를 쓸지 여부
             int chosenConnectorId = -1;   // Primary 를 쓰지 않을 때 사용할 커넥터 Id
 
@@ -246,36 +274,37 @@ namespace FBXtoRVT.Core
                 if (openConns.Count == 0) return;
                 usePrimary = true;
             }
+            else if (kind == PartKind.Flange)
+            {
+                // FLANGE: Primary 구분 없이, 열린 커넥터 중 장비 커넥터에 가장 가까운 것을 쓴다.
+                if (openConns.Count == 0) return;
+
+                Connector nearest = null;
+                double nearestDist = double.MaxValue;
+
+                foreach (Connector c in openConns)
+                {
+                    double dist = c.Origin.DistanceTo(target.Origin);
+                    if (dist < nearestDist)
+                    {
+                        nearestDist = dist;
+                        nearest = c;
+                    }
+                }
+
+                usePrimary = false;
+                chosenConnectorId = nearest.Id;
+            }
             else if (openConns.Count == 2)
             {
-                // 열린 커넥터 2개 → Primary 커넥터 사용
+                // NUT + 열린 커넥터 2개 → Primary 커넥터 사용
                 usePrimary = true;
-                if (kind == PartKind.Flange)
-                    paramToUncheck = GetFlangeParamToUncheck(true, IsBellows(part));
             }
             else if (openConns.Count == 1)
             {
-                Connector only = openConns[0];
-
-                if (kind == PartKind.Nut)
-                {
-                    // NUT: 열린 커넥터를 그대로 사용
-                    usePrimary = false;
-                    chosenConnectorId = only.Id;
-                }
-                else if (ElementUtils.IsPrimaryConnector(only))
-                {
-                    // FLANGE + Primary → 2개일 때와 동일하게 처리
-                    usePrimary = true;
-                    paramToUncheck = GetFlangeParamToUncheck(true, IsBellows(part));
-                }
-                else
-                {
-                    // FLANGE + Primary 아님 → 그 커넥터를 사용
-                    usePrimary = false;
-                    chosenConnectorId = only.Id;
-                    paramToUncheck = GetFlangeParamToUncheck(false, IsBellows(part));
-                }
+                // NUT + 열린 커넥터 1개 → 그 커넥터를 그대로 사용
+                usePrimary = false;
+                chosenConnectorId = openConns[0].Id;
             }
             else
             {
@@ -285,14 +314,7 @@ namespace FBXtoRVT.Core
 
             count.TargetCount++;
 
-            // 3) 파라미터 해제 (형상이 바뀌므로 이후 커넥터는 다시 조회한다)
-            if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(part, paramToUncheck))
-            {
-                result.ParamUncheckedCount++;
-                doc.Regenerate();
-            }
-
-            // 4) 실제로 연결할 커넥터를 다시 조회
+            // 3) 실제로 연결할 커넥터를 다시 조회
             Connector subConn = usePrimary
                 ? ElementUtils.GetPrimaryConnector(doc.GetElement(partId))
                 : ElementUtils.ResolveConnector(doc, partId, chosenConnectorId);
@@ -521,26 +543,5 @@ namespace FBXtoRVT.Core
             return true;
         }
 
-        /// <summary>이름에 BELLOWS 가 들어간 부품인지. (상/하 해제 규칙이 반대가 된다)</summary>
-        private static bool IsBellows(FamilyInstance part)
-        {
-            return ElementUtils.NameContains(part, BellowsKeyword);
-        }
-
-        /// <summary>
-        /// FLANGE 에서 해제할 파라미터 이름을 고른다.
-        ///
-        ///  보통 FLANGE : Primary 이면 "FLANGE 하", 아니면 "FLANGE 상"
-        ///  BELLOWS     : 위와 반대로 Primary 이면 "FLANGE 상", 아니면 "FLANGE 하"
-        /// </summary>
-        /// <param name="isPrimary">Primary 커넥터를 쓰는 경우인지</param>
-        /// <param name="isBellows">부품 이름에 BELLOWS 가 들어있는지</param>
-        private static string GetFlangeParamToUncheck(bool isPrimary, bool isBellows)
-        {
-            if (isBellows)
-                return isPrimary ? ParamFlangeUpper : ParamFlangeLower;
-
-            return isPrimary ? ParamFlangeLower : ParamFlangeUpper;
-        }
     }
 }

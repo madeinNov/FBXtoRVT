@@ -39,7 +39,7 @@ namespace FBXtoRVT.Commands
 
             try
             {
-                // 2) 트랜잭션 안에서 실행 (파라미터 해제 + 부품 이동/연결)
+                // 2) 트랜잭션 안에서 실행 (부품 이동/연결)
                 EquipmentFlangeNutHelper.RunResult runResult;
 
                 using (Transaction tx = new Transaction(doc, "플랜지/NUT/VCR 연결"))
@@ -50,22 +50,7 @@ namespace FBXtoRVT.Commands
                 }
 
                 // 3) 결과 요약 표시
-                string summary =
-                    $"장비(Mechanical Equipment): {runResult.EquipmentCount}대\n" +
-                    $"파라미터 해제: {runResult.ParamUncheckedCount}개\n\n" +
-                    FormatPartLine("FLANGE", runResult.Flange) + "\n" +
-                    FormatPartLine("NUT", runResult.Nut) + "\n" +
-                    FormatPartLine("VCR", runResult.Vcr);
-
-                // VCR 의 Primary 가 다른 곳에 붙어 있어서 떼었다 다시 붙인 경우가 있으면 알려준다
-                int reattachTotal = runResult.Vcr.ReattachedCount + runResult.Vcr.ReattachFailedCount;
-                if (reattachTotal > 0)
-                {
-                    summary += $"\n  └ 반대쪽 다시 붙임: {runResult.Vcr.ReattachedCount}개 / " +
-                               $"실패: {runResult.Vcr.ReattachFailedCount}개";
-                }
-
-                TaskDialog.Show(FeatureTitle, summary);
+                TaskDialog.Show(FeatureTitle, runResult.BuildSummary("장비(Mechanical Equipment)"));
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -73,13 +58,6 @@ namespace FBXtoRVT.Commands
                 message = ex.Message;
                 return Result.Failed;
             }
-        }
-
-        /// <summary>부품 종류 하나의 집계를 한 줄로 만든다.</summary>
-        private static string FormatPartLine(string label, EquipmentFlangeNutHelper.PartCount c)
-        {
-            return $"{label} - 대상 인식: {c.TargetCount}개 / " +
-                   $"연결 성공: {c.ConnectedCount}개 / 실패: {c.FailedCount}개";
         }
     }
 }

@@ -14,6 +14,7 @@ namespace FBXtoRVT
     ///   2.SCR          : SCR 작업용 기능
     ///   공용(연결)     : 부품을 장비/배관의 커넥터에 붙이는 기능
     ///   공용(배관)     : 배관을 새로 만드는 기능
+    ///   공용(TAP)      : 탭 분기 자리를 정리해 이어 주는 기능
     ///   공용(뷰/가시성): 화면에 무엇을 보여줄지 다루는 기능
     ///   응원           : 응원 버튼
     /// </summary>
@@ -43,6 +44,7 @@ namespace FBXtoRVT
             CreateScrPanel(application, assemblyPath);
             CreateCommonConnectPanel(application, assemblyPath);
             CreateCommonPipePanel(application, assemblyPath);
+            CreateCommonTapPanel(application, assemblyPath);
             CreateCommonViewPanel(application, assemblyPath);
             CreateCheerPanel(application, assemblyPath);
 
@@ -97,13 +99,29 @@ namespace FBXtoRVT
                 "ScrubberFlangeButton",
                 "SCR장비&\n플랜지/NUT",
                 "FBXtoRVT.Commands.ScrubberFlangeCommand",
-                "SCRUBBER 장비 안의 FLANGE / NUT 을 장비의 열린 커넥터에 연결합니다.",
-                "패밀리명에 'SCRUBBER' 가 포함된 장비의 바운딩 박스 안에서 'FLANGE' / 'NUT' 부품을 찾고, " +
-                "부품 바운딩 박스 안에 장비의 열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 " +
-                "인식합니다. FLANGE 는 열린 커넥터 개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 " +
-                "해제한 뒤 연결하고(이름에 'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 " +
-                "변경 없이 연결합니다. (부품이 이동·회전)",
+                "SCRUBBER 장비 안의 FLANGE / NUT / VCR 을 장비의 열린 커넥터에 연결합니다.",
+                "'플랜지/NUT/VCR' 과 완전히 같은 규칙이되, 대상 장비만 패밀리명에 'SCRUBBER' 가 포함된 " +
+                "것으로 제한합니다. 장비의 바운딩 박스를 모든 방향으로 20mm 확장한 뒤 그 안에서 " +
+                "'FLANGE' / 'NUT' / 'VCR' 부품을 찾고, 부품 바운딩 박스 안에 장비의 열린 커넥터가 정확히 " +
+                "1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 파라미터 변경이나 Primary 구분 " +
+                "없이 열린 커넥터 중 장비 커넥터에 가장 가까운 것을 연결하고, NUT 은 열린 커넥터 2개면 " +
+                "Primary, 1개면 그 커넥터를 연결합니다. VCR 은 항상 Primary 를 장비쪽에 붙이며, 이미 다른 " +
+                "객체에 붙어 있으면 떼어서 장비에 붙인 뒤 그 객체를 반대쪽에 다시 붙입니다. (부품이 이동·회전)",
                 "S", Colors.DarkSlateBlue);
+
+            AddButton(panel, assemblyPath,
+                "ElbowAdapterButton",
+                "엘보 어댑터\n생성기",
+                "FBXtoRVT.Commands.ElbowAdapterCommand",
+                "양쪽이 연결된 엘보 조립품에서, 배관 쪽 ADAPTOR 파라미터를 켭니다.",
+                "패밀리명에 'ASSEMBLY_ELBOW_ADPT_LOT-FLON' 이 포함된 엘보 조립품 중, End 커넥터가 " +
+                "2개이고 둘 다 연결되어 있는 것만 대상으로 합니다. 엘보 중심점에서 가장 가까운 SCR 장비 " +
+                "(패밀리명에 'SCRUBBER' 포함)를 그 엘보의 기준 장비로 삼고, 두 커넥터 중 그 장비 " +
+                "중심점에서 더 먼 쪽을 고릅니다. 그 먼 쪽 커넥터가 배관과 연결되어 있으면, 해당 커넥터 " +
+                "쪽 ADAPTOR 파라미터('ADAPTOR_상' 또는 'ADAPTOR_하')를 체크합니다. 이 패밀리는 " +
+                "Primary 커넥터가 '상' 쪽이므로, 먼 쪽이 Primary 면 'ADAPTOR_상' 을 켭니다. " +
+                "CLAMP 파라미터는 건드리지 않습니다.",
+                "어", Colors.DarkGoldenrod);
 
             AddButton(panel, assemblyPath,
                 "OverlapSelectButton",
@@ -156,16 +174,29 @@ namespace FBXtoRVT
                 "플랜지/\nNUT/VCR",
                 "FBXtoRVT.Commands.EquipmentFlangeNutCommand",
                 "Mechanical Equipment 안의 FLANGE / NUT / VCR 을 장비의 열린 커넥터에 연결합니다.",
-                "SCR장비&플랜지/NUT 과 동일한 규칙이되, 대상이 'SCRUBBER' 패밀리가 아니라 " +
-                "Mechanical Equipment 카테고리 전체입니다. 장비의 바운딩 박스를 모든 방향으로 20mm " +
+                "대상은 Mechanical Equipment 카테고리 전체입니다. 장비의 바운딩 박스를 모든 방향으로 20mm " +
                 "확장한 뒤 그 안에서 'FLANGE' / 'NUT' / 'VCR' 부품을 찾고, 부품 바운딩 박스 안에 장비의 " +
-                "열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 열린 " +
-                "커넥터 개수에 따라 'FLANGE 하' 또는 'FLANGE 상' 파라미터를 해제한 뒤 연결하고(이름에 " +
-                "'BELLOWS' 가 들어간 부품은 상/하가 반대), NUT 은 파라미터 변경 없이 연결합니다. " +
+                "열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 파라미터 " +
+                "변경이나 Primary 구분 없이, 열린 커넥터 중 장비 커넥터에 가장 가까운 것을 그대로 연결합니다. " +
+                "NUT 은 파라미터 변경 없이 연결합니다(열린 커넥터 2개면 Primary, 1개면 그 커넥터). " +
                 "VCR(예: ASSEMBLY_VCR_STS316L EP)은 파라미터 변경 없이 항상 Primary 커넥터를 " +
                 "장비쪽에 붙이며, Primary 가 이미 다른 객체에 붙어 있으면 떼어서 장비에 붙인 뒤 " +
                 "그 객체를 반대쪽 커넥터에 다시 붙입니다. (부품이 이동·회전)",
                 "V", Colors.DarkCyan);
+
+            AddButton(panel, assemblyPath,
+                "ObjectConnectButton",
+                "연결",
+                "FBXtoRVT.Commands.ObjectConnectCommand",
+                "객체 두 개를 차례로 클릭하면 가장 가까운 열린 커넥터끼리 연결합니다. (두 번째 객체가 움직임)",
+                "첫 번째 객체, 두 번째 객체를 차례로 클릭합니다. 두 객체의 열린 커넥터 조합 중 " +
+                "서로 가장 가까운 한 쌍을 골라 연결하며, 첫 번째 객체는 그대로 두고 두 번째 객체가 " +
+                "움직여서 붙습니다. 두 번째 객체가 배관이면 이동하지 않고 배관 길이를 늘리거나 줄여서(Stretch) " +
+                "붙이며, 옆으로 어긋난 만큼은 평행이동해 맞춥니다. 배관 축과 상대 커넥터가 마주보지 않아 " +
+                "Stretch 로 붙일 수 없으면 배관 길이는 그대로 두고 회전·이동으로 붙입니다. " +
+                "같은 객체를 두 번 고르면 취소됩니다. " +
+                "경고창이나 결과창은 띄우지 않으며, 조건이 맞지 않으면 아무것도 하지 않습니다.",
+                "결", Colors.DarkGreen);
         }
 
         /// <summary>
@@ -222,6 +253,31 @@ namespace FBXtoRVT
                 "바깥쪽으로 붙습니다. 입력한 지름이 그 배관 타입에 없는 사이즈면 쓸 수 있는 " +
                 "사이즈를 알려 주고 아무것도 만들지 않습니다.",
                 "R", Colors.Chocolate);
+        }
+
+        /// <summary>
+        /// "공용(TAP)" 패널: 탭 분기 자리를 정리해 이어 주는 기능.
+        /// </summary>
+        private void CreateCommonTapPanel(UIControlledApplication application, string assemblyPath)
+        {
+            RibbonPanel panel = application.CreateRibbonPanel(TabName, "공용(TAP)");
+
+            AddButton(panel, assemblyPath,
+                "TapButton",
+                "TAP",
+                "FBXtoRVT.Commands.TapCommand",
+                "선택한 2커넥터 피팅에서 33mm 배관을 만들고, 주변 배관 두 토막을 합친 뒤 캡·회전·탭 연결까지 합니다. (다중 선택 가능)",
+                "커넥터 2개짜리 Pipe Fitting 을 선택(여러 개 가능)하고 실행합니다. 피팅을 중심으로 한 변 120mm " +
+                "정육면체 박스를 만들고, 그 안에서 캡(커넥터 1개짜리 Pipe Fitting)은 가장 가까운 것 1개, " +
+                "배관 끝 커넥터는 가까운 순서로 2개를 고릅니다. 처리 순서: " +
+                "① 피팅 커넥터 2개에서 각각 33mm 배관 생성(배관 타입은 피팅 패밀리명을 '_'로 나눈 마지막 단어 " +
+                "STS316L BA / STS316L EP, 지름은 커넥터, System Type 은 직선배관). " +
+                "② 두 배관을 하나로 합침(긴 배관이 남고 짧은 배관은 삭제, 긴 배관을 짧은 배관 반대쪽 끝까지 연장). " +
+                "③ 캡을 캡에 가까운 쪽 33mm 배관 끝에 이동·회전시켜 연결. " +
+                "④ 피팅 + 33mm 배관 2개 + 캡을 한 덩어리로 돌려 캡 없는 쪽 커넥터가 직선배관을 향하게 함(이미 향해 있으면 그대로). " +
+                "⑤ 캡 없는 쪽 33mm 배관을 직선배관까지 늘려 탭(Takeoff)으로 연결. " +
+                "어느 단계가 불가능해도 그 전 단계까지는 남깁니다. 결과창은 띄우지 않습니다. (로그 파일 참고)",
+                "T", Colors.DarkMagenta);
         }
 
         /// <summary>

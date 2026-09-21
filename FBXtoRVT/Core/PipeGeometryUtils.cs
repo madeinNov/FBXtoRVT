@@ -94,6 +94,54 @@ namespace FBXtoRVT.Core
         }
 
         /// <summary>
+        /// 점을 중심선(무한 직선으로 본다) 위에 수직으로 내린 점(= 수선의 발)을 구한다.
+        /// </summary>
+        public static XYZ ProjectPointOnLine(Line line, XYZ point)
+        {
+            XYZ origin = line.GetEndPoint(0);
+            XYZ direction = line.Direction.Normalize();
+
+            double t = (point - origin).DotProduct(direction);
+            return origin + direction * t;
+        }
+
+        /// <summary>
+        /// 배관의 두 끝점 중 <paramref name="endToMove"/> 에 가까운 쪽 끝을 <paramref name="targetPoint"/> 로 옮긴다.
+        /// (유저가 손으로 하던 Trim / Extend 와 같은 결과. 반대쪽 끝은 그대로 둔다)
+        ///
+        /// 이미 목표점에 있으면 아무것도 하지 않고 true.
+        /// 배관이 직선이 아니거나, 옮긴 뒤 배관이 너무 짧아지면 false 를 돌려주고 건드리지 않는다.
+        /// </summary>
+        public static bool StretchPipeEndTo(Document doc, ElementId pipeId, XYZ endToMove, XYZ targetPoint)
+        {
+            var pipe = doc.GetElement(pipeId) as Pipe;
+            if (pipe == null) return false;
+
+            var lc = pipe.Location as LocationCurve;
+            Line line = (lc != null) ? lc.Curve as Line : null;
+            if (line == null) return false;
+
+            double minLength = doc.Application.ShortCurveTolerance;
+
+            XYZ start = line.GetEndPoint(0);
+            XYZ end = line.GetEndPoint(1);
+
+            // 옮길 끝이 시작점 쪽인지 끝점 쪽인지 판정
+            bool moveStart = start.DistanceTo(endToMove) <= end.DistanceTo(endToMove);
+            XYZ movingEnd = moveStart ? start : end;
+            XYZ fixedEnd = moveStart ? end : start;
+
+            if (movingEnd.DistanceTo(targetPoint) < minLength) return true;   // 이미 그 자리
+            if (fixedEnd.DistanceTo(targetPoint) < minLength) return false;   // 너무 짧아짐
+
+            lc.Curve = moveStart
+                ? Line.CreateBound(targetPoint, fixedEnd)
+                : Line.CreateBound(fixedEnd, targetPoint);
+
+            return true;
+        }
+
+        /// <summary>
         /// 두 중심선의 끝점 4개 조합 중 서로 가장 가까운 한 쌍을 찾는다.
         /// = 두 배관에서 "서로 마주보는 쪽 커넥터" 의 위치.
         /// </summary>

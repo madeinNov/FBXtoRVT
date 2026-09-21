@@ -94,10 +94,16 @@ foreach (Element e in collector)
 | 파일 | 적용 방식 |
 | --- | --- |
 | `Core/SleeveAdjustHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
-| `Core/ScrubberFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
+| `Core/EquipmentFlangeNutHelper.cs` | `ElementUtils.CollectFamilyInstancesByCategory` / `CollectFamilyInstances` 사용 (플랜지/NUT/VCR 과 SCR장비&플랜지/NUT 이 함께 씀) |
 | `Core/ElbowConnectHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
 | `Core/HopperFlangeHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
 | `Core/OverlapSelectHelper.cs` | `CollectFamilyInstancesInView` 에서 `IsSubComponent` 로 제외 |
+| `Core/TapHelper.cs` | `ElementUtils.CollectFamilyInstancesByCategory` 사용 |
+| `Core/ElbowAdapterHelper.cs` | `ElementUtils.CollectFamilyInstances` 사용 |
+
+`Core/ObjectConnectHelper.cs` (연결)는 사용자가 직접 클릭한 객체 두 개만 다루므로 수집 단계가 없습니다.
+"연결" 의 배관 Stretch 로직(`StretchPipeToConnector`)은 `TapHelper` 가 배관을 합친 뒤
+떨어져 나간 객체를 다시 붙일 때도 그대로 씁니다.
 
 `Core/OverlapSelectHelper.cs` 는 패밀리명뿐 아니라 타입명으로도 찾아야 해서
 자체 수집 코드를 갖고 있고, 거기에 `IsSubComponent` 를 끼워 넣었습니다.
@@ -134,13 +140,14 @@ foreach (Element e in collector)
 | 패널 | 성격 | 현재 버튼 |
 | --- | --- | --- |
 | `1.포어라인` | 포어라인 작업 전용 | 타공 슬리브 조정 / 대각 배관 생성기 |
-| `2.SCR` | SCR 작업 전용 | SCR장비&플랜지/NUT / 겹침 객체 선택 |
-| `공용(연결)` | 부품을 커넥터에 붙이는 기능 | ELBOW&배관/플랜지 / HOPPER&플랜지 / 플랜지/NUT/VCR |
+| `2.SCR` | SCR 작업 전용 | SCR장비&플랜지/NUT / 엘보 어댑터 생성기 / 겹침 객체 선택 |
+| `공용(연결)` | 부품을 커넥터에 붙이는 기능 | ELBOW&배관/플랜지 / HOPPER&플랜지 / 플랜지/NUT/VCR / 연결 |
 | `공용(배관)` | 배관을 새로 만드는 기능 | 직각 배관 연결기 / Flex Pipe 생성기 / Reducer 생성기 |
+| `공용(TAP)` | 탭 분기 자리를 정리해 이어 주는 기능 | TAP |
 | `공용(뷰/가시성)` | 화면에 무엇을 보여줄지 다루는 기능 | LINK ON/OFF / 선택 Section Box |
 | `응원` | 응원 버튼 | (이름별 8개) |
 
-**공용 패널 세 개는 `연결` → `배관` → `뷰/가시성` 순서로 둡니다.**
+**공용 패널 네 개는 `연결` → `배관` → `TAP` → `뷰/가시성` 순서로 둡니다.**
 
 ### 이유
 
