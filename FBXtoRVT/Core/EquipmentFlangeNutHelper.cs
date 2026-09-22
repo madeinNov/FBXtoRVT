@@ -14,12 +14,16 @@ namespace FBXtoRVT.Core
     ///  2) 그 박스 안에 중심점이 들어가는 부품(FLANGE / NUT / VCR)을 모으고, 부품별 바운딩 박스를 구한다.
     ///  3) 부품 바운딩 박스 안에 장비의 열린 커넥터가 "정확히 1개" 들어있으면,
     ///     그 커넥터를 그 부품의 대상 커넥터로 인식한다.
-    ///  4) 부품 종류와 열린 커넥터 개수에 따라 커넥터를 고르고, 부품을 이동/회전시켜 연결한다.
+    ///  4) 부품 종류와 열린 커넥터 개수에 따라 파라미터를 해제하고, 부품을 이동/회전시켜 연결한다.
     ///
-    ///  FLANGE (파라미터 해제 없음. Primary 구분도 하지 않는다)
-    ///   - 열린 커넥터 중 <b>장비 커넥터에 가장 가까운 것</b>을 대상 커넥터에 연결
-    ///     (예전에는 "FLANGE 상/하" 파라미터를 해제하고 Primary 여부로 커넥터를 골랐지만,
-    ///      지금은 그 규칙을 모두 없애고 가까운 커넥터를 그대로 붙인다)
+    ///  FLANGE (체크박스 "FLANGE 상/하" 해제 + Primary 방향 고려)
+    ///   - 열린 커넥터 2개              : "FLANGE 하" 해제 후 Primary 커넥터를 대상 커넥터에 연결
+    ///   - 열린 커넥터 1개(Primary)      : 위와 동일
+    ///   - 열린 커넥터 1개(Primary 아님)  : "FLANGE 상" 해제 후 그 열린 커넥터를 대상 커넥터에 연결
+    ///
+    ///  FLANGE 중 이름(패밀리명 또는 타입명)에 "BELLOWS" 가 들어간 것은 상/하가 반대다.
+    ///   - Primary      : "FLANGE 상" 해제
+    ///   - Primary 아님  : "FLANGE 하" 해제
     ///
     ///  NUT (파라미터 해제 없음)
     ///   - 열린 커넥터 2개 : Primary 커넥터를 대상 커넥터에 연결
@@ -39,7 +43,7 @@ namespace FBXtoRVT.Core
         /// </summary>
         public enum PartKind
         {
-            Flange,   // FLANGE: 파라미터 해제 없음 + 장비 커넥터에 가장 가까운 열린 커넥터
+            Flange,   // FLANGE: "FLANGE 상/하" 파라미터 해제 + Primary/열린 커넥터
             Nut,      // NUT   : 파라미터 해제 없음 + Primary/열린 커넥터
             Vcr       // VCR   : 파라미터 해제 없음 + 항상 Primary
         }
@@ -48,6 +52,13 @@ namespace FBXtoRVT.Core
         private const string FlangeFamilyKeyword = "FLANGE";
         private const string NutFamilyKeyword = "NUT";
         private const string VcrFamilyKeyword = "VCR";
+
+        // 상/하 해제 규칙이 반대가 되는 부품 이름 키워드
+        private const string BellowsKeyword = "BELLOWS";
+
+        // 해제 대상 YES/NO 인스턴스 파라미터(체크박스) 이름
+        private const string ParamFlangeLower = "FLANGE 하";
+        private const string ParamFlangeUpper = "FLANGE 상";
 
         // 장비 바운딩 박스 확장량(mm). 모든 방향(X/Y/Z 앞뒤)으로 이만큼 키운다.
         private const double EquipBoxExpandMm = 20.0;
@@ -70,6 +81,7 @@ namespace FBXtoRVT.Core
         public class RunResult
         {
             public int EquipmentCount;                       // 찾은 장비 수
+            public int ParamUncheckedCount;                  // 실제로 해제한 FLANGE 상/하 체크박스 수
             public PartCount Flange = new PartCount();       // FLANGE 집계
             public PartCount Nut = new PartCount();          // NUT 집계
             public PartCount Vcr = new PartCount();          // VCR 집계
@@ -94,6 +106,7 @@ namespace FBXtoRVT.Core
                 string summary =
                     $"{equipmentLabel}: {EquipmentCount}대\n\n" +
                     FormatPartLine("FLANGE", Flange) + "\n" +
+                    $"  └ 상/하 체크박스 해제: {ParamUncheckedCount}개\n" +
                     FormatPartLine("NUT", Nut) + "\n" +
                     FormatPartLine("VCR", Vcr);
 
@@ -254,6 +267,7 @@ namespace FBXtoRVT.Core
             // 2) 부품 종류와 열린 커넥터 개수에 따라 처리 방법 결정
             List<Connector> openConns = ElementUtils.GetOpenEndConnectors(part);
 
+            string paramToUncheck = null; // 해제할 체크박스 파라미터 (FLANGE 만 있음. NUT / VCR 은 없음)
             bool usePrimary;              // Primary 커넥터를 쓸지 여부
             int chosenConnectorId = -1;   // Primary 를 쓰지 않을 때 사용할 커넥터 Id
 
@@ -263,37 +277,37 @@ namespace FBXtoRVT.Core
                 if (openConns.Count == 0) return;
                 usePrimary = true;
             }
-            else if (kind == PartKind.Flange)
-            {
-                // FLANGE: Primary 구분 없이, 열린 커넥터 중 장비 커넥터에 가장 가까운 것을 쓴다.
-                if (openConns.Count == 0) return;
-
-                Connector nearest = null;
-                double nearestDist = double.MaxValue;
-
-                foreach (Connector c in openConns)
-                {
-                    double dist = c.Origin.DistanceTo(target.Origin);
-                    if (dist < nearestDist)
-                    {
-                        nearestDist = dist;
-                        nearest = c;
-                    }
-                }
-
-                usePrimary = false;
-                chosenConnectorId = nearest.Id;
-            }
             else if (openConns.Count == 2)
             {
-                // NUT + 열린 커넥터 2개 → Primary 커넥터 사용
+                // 열린 커넥터 2개 → Primary 커넥터를 장비쪽에 붙인다.
+                // FLANGE 는 장비 반대쪽(하)이 열리므로 "FLANGE 하" 체크박스를 해제한다. (BELLOWS 는 반대)
                 usePrimary = true;
+                if (kind == PartKind.Flange)
+                    paramToUncheck = GetFlangeParamToUncheck(true, IsBellows(part));
             }
             else if (openConns.Count == 1)
             {
-                // NUT + 열린 커넥터 1개 → 그 커넥터를 그대로 사용
-                usePrimary = false;
-                chosenConnectorId = openConns[0].Id;
+                Connector only = openConns[0];
+
+                if (kind == PartKind.Nut)
+                {
+                    // NUT: 열린 커넥터를 그대로 사용
+                    usePrimary = false;
+                    chosenConnectorId = only.Id;
+                }
+                else if (ElementUtils.IsPrimaryConnector(only))
+                {
+                    // FLANGE + 열린 커넥터가 Primary → 2개일 때와 동일하게 처리
+                    usePrimary = true;
+                    paramToUncheck = GetFlangeParamToUncheck(true, IsBellows(part));
+                }
+                else
+                {
+                    // FLANGE + 열린 커넥터가 Primary 아님 → 그 커넥터를 장비쪽에 붙이고 "FLANGE 상" 해제
+                    usePrimary = false;
+                    chosenConnectorId = only.Id;
+                    paramToUncheck = GetFlangeParamToUncheck(false, IsBellows(part));
+                }
             }
             else
             {
@@ -303,7 +317,14 @@ namespace FBXtoRVT.Core
 
             count.TargetCount++;
 
-            // 3) 실제로 연결할 커넥터를 다시 조회
+            // 3) 체크박스 파라미터 해제 (형상이 바뀌므로 이후 커넥터는 다시 조회한다)
+            if (paramToUncheck != null && ElementUtils.UncheckYesNoParam(part, paramToUncheck))
+            {
+                result.ParamUncheckedCount++;
+                doc.Regenerate();
+            }
+
+            // 4) 실제로 연결할 커넥터를 다시 조회
             Connector subConn = usePrimary
                 ? ElementUtils.GetPrimaryConnector(doc.GetElement(partId))
                 : ElementUtils.ResolveConnector(doc, partId, chosenConnectorId);
@@ -316,7 +337,7 @@ namespace FBXtoRVT.Core
                 return;
             }
 
-            // 4-1) VCR 의 Primary 가 이미 다른 객체에 붙어 있으면:
+            // 5-1) VCR 의 Primary 가 이미 다른 객체에 붙어 있으면:
             //      그 상대를 기억해 두고 일단 떼어 낸다. (장비에 붙인 뒤 반대쪽 커넥터에 다시 붙인다)
             ConnRef detachedPartner = null;
 
@@ -347,7 +368,7 @@ namespace FBXtoRVT.Core
                 }
             }
 
-            // 5) 장비 커넥터를 기준(Main)으로 두고, 부품(Sub)을 이동/회전시켜 연결
+            // 6) 장비 커넥터를 기준(Main)으로 두고, 부품(Sub)을 이동/회전시켜 연결
             try
             {
                 ConnectorHelper.AlignAndConnect(doc, targetConn, subConn, partId);
@@ -362,7 +383,7 @@ namespace FBXtoRVT.Core
                 return;
             }
 
-            // 6) 아까 떼어 낸 상대가 있으면, 부품의 반대쪽 커넥터에 다시 붙인다.
+            // 7) 아까 떼어 낸 상대가 있으면, 부품의 반대쪽 커넥터에 다시 붙인다.
             if (detachedPartner != null)
             {
                 if (ReattachPartner(doc, partId, detachedPartner))
@@ -532,5 +553,28 @@ namespace FBXtoRVT.Core
             return true;
         }
 
+        // ===== FLANGE: 상/하 체크박스 해제 규칙 =====
+
+        /// <summary>이름에 BELLOWS 가 들어간 부품인지. (상/하 해제 규칙이 반대가 된다)</summary>
+        private static bool IsBellows(FamilyInstance part)
+        {
+            return ElementUtils.NameContains(part, BellowsKeyword);
+        }
+
+        /// <summary>
+        /// FLANGE 에서 해제할 체크박스 파라미터 이름을 고른다.
+        ///
+        ///  보통 FLANGE : Primary 를 장비에 붙이면 "FLANGE 하", 아니면 "FLANGE 상"
+        ///  BELLOWS     : 위와 반대로 Primary 이면 "FLANGE 상", 아니면 "FLANGE 하"
+        /// </summary>
+        /// <param name="isPrimary">Primary 커넥터를 장비에 붙이는 경우인지</param>
+        /// <param name="isBellows">부품 이름에 BELLOWS 가 들어있는지</param>
+        private static string GetFlangeParamToUncheck(bool isPrimary, bool isBellows)
+        {
+            if (isBellows)
+                return isPrimary ? ParamFlangeUpper : ParamFlangeLower;
+
+            return isPrimary ? ParamFlangeLower : ParamFlangeUpper;
+        }
     }
 }

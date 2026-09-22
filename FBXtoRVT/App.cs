@@ -165,8 +165,9 @@ namespace FBXtoRVT
                 "Mechanical Equipment 안의 FLANGE / NUT / VCR 을 장비의 열린 커넥터에 연결합니다. (SCR 장비 포함)",
                 "대상은 Mechanical Equipment 카테고리 전체입니다. 장비의 바운딩 박스를 모든 방향으로 20mm " +
                 "확장한 뒤 그 안에서 'FLANGE' / 'NUT' / 'VCR' 부품을 찾고, 부품 바운딩 박스 안에 장비의 " +
-                "열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 파라미터 " +
-                "변경이나 Primary 구분 없이, 열린 커넥터 중 장비 커넥터에 가장 가까운 것을 그대로 연결합니다. " +
+                "열린 커넥터가 정확히 1개 들어있으면 그 커넥터를 대상으로 인식합니다. FLANGE 는 열린 커넥터가 " +
+                "2개이거나 1개(Primary)면 'FLANGE 하' 체크박스를 해제하고 Primary 를 장비에 붙이고, " +
+                "1개(Primary 아님)면 'FLANGE 상' 을 해제하고 그 커넥터를 장비에 붙입니다. (BELLOWS 는 상/하 반대) " +
                 "NUT 은 파라미터 변경 없이 연결합니다(열린 커넥터 2개면 Primary, 1개면 그 커넥터). " +
                 "VCR(예: ASSEMBLY_VCR_STS316L EP)은 파라미터 변경 없이 항상 Primary 커넥터를 " +
                 "장비쪽에 붙이며, Primary 가 이미 다른 객체에 붙어 있으면 떼어서 장비에 붙인 뒤 " +
